@@ -1,0 +1,27 @@
+# secrets
+.env
+.env.*
+!.env.example
+
+# supabase CLI
+supabase/.temp/
+supabase/.branches/
+.branches/
+
+# dependencies
+node_modules/
+
+# local workspace metadata
+/.cloud-attachments/
+/.freebuff/
+
+# legacy data
+legacy/python-bot/data/
+legacy/**/__pycache__/
+legacy/**/*.pyc
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

@@ -1,0 +1,21 @@
+{
+  "name": "ascend-academy-bot",
+  "version": "3.0.0",
+  "private": true,
+  "description": "Ascend Academy Telegram bot on Supabase Edge Functions",
+  "scripts": {
+    "check": "deno check supabase/functions/telegram/index.ts supabase/functions/worker/index.ts",
+    "test": "deno test --allow-env --allow-read --allow-net supabase/tests",
+    "fmt": "deno fmt supabase",
+    "setup": "bash scripts/setup_bot.sh",
+    "slides": "python3 scripts/gen_onboarding.py"
+  },
+  "devDependencies": {
+    "deno": "^2.9.6"
+  },
+  "dependencies": {
+    "@resvg/resvg-wasm": "^2.6.2",
+    "@supabase/supabase-js": "^2.119.0",
+    "satori": "^0.63.2"
+  }
+}

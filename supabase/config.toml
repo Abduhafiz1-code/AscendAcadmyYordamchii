@@ -1,0 +1,7 @@
+project_id = "ascend-academy"
+
+[functions.telegram]
+verify_jwt = false
+
+[functions.worker]
+verify_jwt = false
