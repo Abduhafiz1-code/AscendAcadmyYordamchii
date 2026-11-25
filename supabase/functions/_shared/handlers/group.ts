@@ -1,11 +1,12 @@
 import { notifyStaff, reply, type AppContext } from "../context.ts";
+import { onboardingSlide } from "../assets/onboarding.ts";
 import { classifyTopicName, routeThread, topicTypeLabel, trackLabel } from "../logic/routing.ts";
 import { sendLeaderboardCard } from "../logic/leaderboardCard.ts";
 import { startOfWeek } from "../logic/period.ts";
 import { parseDue, splitAnswerKey } from "../logic/taskParse.ts";
 import { esc, fmtDateTime, truncate } from "../logic/format.ts";
 import { fill, T } from "../texts.ts";
-import { taskKeyboard, topicTypeKeyboard } from "../ui.ts";
+import { startBotKeyboard, taskKeyboard, topicTypeKeyboard } from "../ui.ts";
 import {
   commandArgs,
   extractContent,
@@ -259,6 +260,39 @@ async function setTrack(ctx: AppContext, raw: string): Promise<void> {
     name: esc(topic.name ?? `#${topic.thread_id}`),
     track: track ? esc(trackLabel(track)) : "—",
   }));
+}
+
+/** /qoidalar — qoidalarni guruhga rasm bilan yuboradi va qadab qo'yadi (faqat ustoz/admin). */
+async function postGroupRules(ctx: AppContext): Promise<void> {
+  if (!ctx.isTeacher && !ctx.isAdmin) return;
+  const me = await ctx.tg.getMe();
+  const text = fill(T.groupRules, { penalty: ctx.settings.daily_penalty });
+  const markup = me.username ? startBotKeyboard(me.username, T.dmNudgeButton) : undefined;
+
+  let messageId: number;
+  try {
+    const image = onboardingSlide(1); // "Vazifani guruhga tashlang" slaydi
+    if (!image) throw new Error("slayd yo'q");
+    const sent = await ctx.tg.sendPhoto(ctx.chatId, image, {
+      caption: text,
+      threadId: ctx.threadId,
+      markup,
+    });
+    messageId = sent.messageId;
+  } catch (error) {
+    console.error("qoidalar rasmi yuborilmadi, matn yuboriladi", error);
+    messageId = await ctx.tg.sendMessage(ctx.chatId, text, { threadId: ctx.threadId, markup });
+  }
+
+  try {
+    await ctx.tg.call("pinChatMessage", {
+      chat_id: ctx.chatId,
+      message_id: messageId,
+      disable_notification: true,
+    });
+  } catch (error) {
+    console.error("qoidalar qadalmadi (botda 'xabarni qadash' huquqi yo'q bo'lishi mumkin)", error);
+  }
 }
 
 async function bindTopic(ctx: AppContext, raw: string): Promise<void> {
@@ -515,6 +549,10 @@ export async function handleGroup(ctx: AppContext): Promise<void> {
   }
   if (isCommand(text, "/id")) {
     await reply(ctx, fill(T.idText, { id: ctx.sender.id }));
+    return;
+  }
+  if (isCommand(text, "/qoidalar")) {
+    await postGroupRules(ctx);
     return;
   }
   if (isCommand(text, "/reyting") || isCommand(text, "/leaderboard") || isCommand(text, "/hafta")) {
