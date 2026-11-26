@@ -8,41 +8,68 @@ export function splitAnswerKey(text: string): { prompt: string; answerKey: strin
   return { prompt, answerKey: answerKey || null };
 }
 
-/** Muddat: kun soni ("3") yoki ISO sana ("2026-11-20", Toshkent 20:00). */
+const UNIT_MS: Record<string, number> = {
+  soat: 3_600_000,
+  hour: 3_600_000,
+  hours: 3_600_000,
+  kun: 86_400_000,
+  day: 86_400_000,
+  days: 86_400_000,
+  hafta: 7 * 86_400_000,
+  week: 7 * 86_400_000,
+};
+
+/** Muddat: "3", "3 kun", "6 soat", "1 hafta" yoki ISO sana ("2026-11-20", Toshkent 20:00). */
 export function parseDue(raw: string, now = new Date()): Date | null {
-  const days = raw.trim().match(/^(\d{1,2})$/);
-  if (days) {
-    const value = Number(days[1]);
-    if (value < 1 || value > 60) return null;
-    return new Date(now.getTime() + value * 86_400_000);
+  const value = raw.trim().toLowerCase();
+  const relative = value.match(/^(\d{1,3})\s*(soat|kun|hafta|hour|hours|day|days|week)?$/);
+  if (relative) {
+    const amount = Number(relative[1]);
+    const unit = relative[2] ?? "kun";
+    const ms = (UNIT_MS[unit] ?? 86_400_000) * amount;
+    if (amount < 1 || ms > 60 * 86_400_000) return null;
+    return new Date(now.getTime() + ms);
   }
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw.trim())) {
-    const date = new Date(`${raw.trim()}T20:00:00+05:00`);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const date = new Date(`${value}T20:00:00+05:00`);
     return Number.isNaN(date.getTime()) ? null : date;
   }
   return null;
 }
 
-/** Vazifa matnidan muddatni topadi: "Muddat: 3 kun", "2 kun ichida" yoki ISO sana. */
+function tidy(text: string): string {
+  return text
+    .split("\n")
+    .map((line) => line.replace(/[ \t]{2,}/g, " ").replace(/\s+([,.;:!?])/g, "$1").trim())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/**
+ * Vazifa matnidan muddatni topadi. Ustoz muddatni gap ichida yozsa ham tushunadi:
+ * "Muddat: 3 kun", "3 kungacha", "2 soat ichida", "1 hafta", "2026-12-01".
+ */
 export function extractDue(text: string, now = new Date()): { text: string; due: Date | null } {
-  const lines = text.split("\n");
-  const patterns = [
-    /^\s*(?:muddat|deadline|due)\s*[:\-]?\s*(\d{1,2})(?:\s*(?:kun|days?))?\s*$/i,
-    /^\s*(?:muddat|deadline|due)\s*[:\-]?\s*(\d{4}-\d{2}-\d{2})\s*$/i,
-    /^\s*(\d{1,2})\s*(?:kun|days?)\s*(?:ichida|within)?\s*$/i,
-  ];
-  for (let i = 0; i < lines.length; i++) {
-    const match = patterns.map((pattern) => lines[i].match(pattern)).find(Boolean);
-    if (!match) continue;
-    const due = parseDue(match[1], now);
-    if (!due) continue;
-    lines.splice(i, 1);
-    return { text: lines.join("\n").trim(), due };
-  }
   const date = text.match(/\b(\d{4}-\d{2}-\d{2})\b/);
   if (date) {
     const due = parseDue(date[1], now);
-    if (due) return { text: text.replace(date[0], "").trim(), due };
+    if (due) return { text: tidy(text.replace(date[0], " ")), due };
   }
+
+  const labeled = text.match(
+    /\b(?:muddat[ai]?|deadline|due)\s*[:\-–—]?\s*(\d{1,3})\s*(soat|kun|hafta|hour|hours|day|days|week)?/i,
+  );
+  if (labeled) {
+    const due = parseDue(`${labeled[1]}${labeled[2] ? ` ${labeled[2]}` : ""}`, now);
+    if (due) return { text: tidy(text.replace(labeled[0], " ")), due };
+  }
+
+  const relative = text.match(/\b(\d{1,3})\s*(soat|kun|hafta)(?:dan|ga|gacha|kungacha|ichida)?\b/i);
+  if (relative) {
+    const due = parseDue(`${relative[1]} ${relative[2]}`, now);
+    if (due) return { text: tidy(text.replace(relative[0], " ")), due };
+  }
+
   return { text: text.trim(), due: null };
 }

@@ -1,4 +1,4 @@
-import { clearState, reply, setState, stateData, type AppContext } from "../context.ts";
+import { type AppContext, clearState, reply, setState, stateData } from "../context.ts";
 import { esc, fmtPoints, truncate } from "../logic/format.ts";
 import { fill, T, TASK_KIND_LABEL } from "../texts.ts";
 import { panelKeyboard, settingsKeyboard, topicsListKeyboard } from "../ui.ts";
@@ -53,7 +53,13 @@ export async function renderMyTasks(ctx: AppContext, user: UserRow): Promise<str
   const lines = [T.tasksTitle, ""];
   for (const task of tasks.slice(0, 12)) {
     const done = points.has(task.id);
-    const icon = done ? "✅" : task.kind === "self_study" ? "📖" : task.kind === "bot" ? "🤖" : "🔓";
+    const icon = done
+      ? "✅"
+      : task.kind === "self_study"
+      ? "📖"
+      : task.kind === "bot"
+      ? "🤖"
+      : "🔓";
     const value = done
       ? `+${fmtPoints(points.get(task.id))} ball`
       : task.kind === "self_study"
@@ -62,7 +68,9 @@ export async function renderMyTasks(ctx: AppContext, user: UserRow): Promise<str
       ? `+${fmtPoints(ctx.settings.bot_task_points)} ball`
       : "0.5–10 ball";
     lines.push(
-      `${icon} <b>#${task.id}</b> · ${TASK_KIND_LABEL[task.kind]} — ${esc(truncate(task.title ?? task.prompt, 40))}`,
+      `${icon} <b>#${task.id}</b> · ${TASK_KIND_LABEL[task.kind]} — ${
+        esc(truncate(task.title ?? task.prompt, 40))
+      }`,
       `   ${value}`,
     );
   }
@@ -71,12 +79,14 @@ export async function renderMyTasks(ctx: AppContext, user: UserRow): Promise<str
 }
 
 export async function openPanel(ctx: AppContext): Promise<void> {
-  if (!ctx.isTeacher) {
+  if (!ctx.isTeacher && !ctx.isAdmin) {
     await reply(ctx, T.onlyStaff);
     return;
   }
   await clearState(ctx);
-  await reply(ctx, T.panelTitle, { markup: panelKeyboard() });
+  await reply(ctx, ctx.isAdmin ? T.adminPanelTitle : T.panelTitle, {
+    markup: panelKeyboard(ctx.isAdmin),
+  });
 }
 
 export async function panelSection(
@@ -85,7 +95,9 @@ export async function panelSection(
 ): Promise<{ text: string; markup: TgReplyMarkup }> {
   if (section === "pending") {
     const users = await ctx.db.pendingUsers();
-    if (users.length === 0) return { text: T.panelPendingEmpty, markup: panelKeyboard() };
+    if (users.length === 0) {
+      return { text: T.panelPendingEmpty, markup: panelKeyboard(ctx.isAdmin) };
+    }
     const rows = [];
     const lines = ["👥 <b>Yangi so'rovlar</b>", ""];
     for (const user of users.slice(0, 8)) {
@@ -93,14 +105,20 @@ export async function panelSection(
         `👤 <b>${esc(user.full_name ?? "—")}</b> · ${esc(user.group_name ?? "—")}`,
         `📞 ${esc(user.phone ?? "—")} · #${user.id}`,
       );
-      rows.push([{ text: `✅ ${truncate(user.full_name ?? "O'quvchi", 20)}`, callback_data: `ap:${user.id}` }]);
+      rows.push([{
+        text: `✅ ${truncate(user.full_name ?? "O'quvchi", 20)}`,
+        callback_data: `ap:${user.id}`,
+      }]);
     }
-    return { text: lines.join("\n"), markup: { inline_keyboard: [...rows, [{ text: "⬅️ Panel", callback_data: "p:root" }]] } };
+    return {
+      text: lines.join("\n"),
+      markup: { inline_keyboard: [...rows, [{ text: "⬅️ Panel", callback_data: "p:root" }]] },
+    };
   }
 
   if (section === "queue") {
     const queue = await ctx.db.manualQueue(6);
-    if (queue.length === 0) return { text: T.panelQueueEmpty, markup: panelKeyboard() };
+    if (queue.length === 0) return { text: T.panelQueueEmpty, markup: panelKeyboard(ctx.isAdmin) };
     const lines = ["⏳ <b>Tekshirish navbati</b>", ""];
     const rows = [];
     for (const submission of queue) {
@@ -113,57 +131,81 @@ export async function panelSection(
       );
       rows.push([{ text: `Baholash #${submission.id}`, callback_data: `g:${submission.id}:ask` }]);
     }
-    return { text: lines.join("\n"), markup: { inline_keyboard: [...rows, [{ text: "⬅️ Panel", callback_data: "p:root" }]] } };
+    return {
+      text: lines.join("\n"),
+      markup: { inline_keyboard: [...rows, [{ text: "⬅️ Panel", callback_data: "p:root" }]] },
+    };
   }
 
   if (section === "students") {
     const rosterGroup = ctx.settings.group_title ?? ctx.user?.group_name ?? null;
-    const students = await ctx.db.activeStudents(rosterGroup);
-    if (students.length === 0) return { text: T.panelStudentsEmpty, markup: panelKeyboard() };
+    const rosterChatId = ctx.isGroup ? ctx.chatId : ctx.settings.group_chat_id;
+    const members = rosterChatId ? await ctx.db.membersOfChat(Number(rosterChatId)) : [];
+    const fromChat = members.filter((member) =>
+      member.role === "student" && member.status === "active"
+    );
+    const students = fromChat.length > 0 ? fromChat : await ctx.db.activeStudents(rosterGroup);
+    if (students.length === 0) {
+      return { text: T.panelStudentsEmpty, markup: panelKeyboard(ctx.isAdmin) };
+    }
     const rows = await ctx.db.leaderboard(null, rosterGroup);
     const byId = new Map(rows.map((row) => [Number(row.user_id), row]));
     const lines = [fill(T.panelStudents, {
       count: students.length,
       list: students.slice(0, 40).map((student) => {
         const stat = byId.get(student.id);
-        return `👤 ${esc(truncate(student.full_name ?? "—", 24))} · ${esc(student.group_name ?? "—")}` +
+        return `👤 ${esc(truncate(student.full_name ?? "—", 24))} · ${
+          esc(student.group_name ?? "—")
+        }` +
           ` · <b>${fmtPoints(stat?.points ?? 0)}</b> ball`;
       }).join("\n"),
     })];
-    return { text: lines.join("\n"), markup: panelKeyboard() };
+    return { text: lines.join("\n"), markup: panelKeyboard(ctx.isAdmin) };
   }
 
   if (section === "tasks") {
     const tasks = await ctx.db.activeTasks(10);
-    if (tasks.length === 0) return { text: T.panelTasksEmpty, markup: panelKeyboard() };
+    if (tasks.length === 0) return { text: T.panelTasksEmpty, markup: panelKeyboard(ctx.isAdmin) };
     const lines = [fill(T.panelTasks, {
       list: tasks.slice(0, 10).map((task) =>
-        `#${task.id} · ${TASK_KIND_LABEL[task.kind]} · ${esc(truncate(task.title ?? task.prompt, 34))}`
+        `#${task.id} · ${TASK_KIND_LABEL[task.kind]} · ${
+          esc(truncate(task.title ?? task.prompt, 34))
+        }`
       ).join("\n"),
     })];
     const rows = tasks.slice(0, 6).map((task) => [{
       text: `🔒 Yopish #${task.id}`,
       callback_data: `t:close:${task.id}`,
     }]);
-    return { text: lines.join("\n"), markup: { inline_keyboard: [...rows, [{ text: "⬅️ Panel", callback_data: "p:root" }]] } };
+    return {
+      text: lines.join("\n"),
+      markup: { inline_keyboard: [...rows, [{ text: "⬅️ Panel", callback_data: "p:root" }]] },
+    };
   }
 
   if (section === "topics") {
     const chatId = ctx.settings.group_chat_id;
     const topics = chatId ? await ctx.db.topicsOfChat(Number(chatId)) : [];
-    if (topics.length === 0) return { text: T.topicsEmpty, markup: panelKeyboard() };
+    if (topics.length === 0) return { text: T.topicsEmpty, markup: panelKeyboard(ctx.isAdmin) };
     const base = topicsListKeyboard(topics);
     return {
       text: T.topicsListTitle,
-      markup: { inline_keyboard: [...(base.inline_keyboard ?? []), [{ text: "⬅️ Panel", callback_data: "p:root" }]] },
+      markup: {
+        inline_keyboard: [...(base.inline_keyboard ?? []), [{
+          text: "⬅️ Panel",
+          callback_data: "p:root",
+        }]],
+      },
     };
   }
 
   if (section === "feedback") {
     const items = await ctx.db.recentFeedback(8);
-    if (items.length === 0) return { text: T.feedbackEmpty, markup: panelKeyboard() };
+    if (items.length === 0) return { text: T.feedbackEmpty, markup: panelKeyboard(ctx.isAdmin) };
     const list = items.map((item) =>
-      `• <b>${esc(item.author ?? "—")}</b> · ${fmtDateTime(item.created_at, ctx.settings.tz)}\n${esc(truncate(item.text, 300))}`
+      `• <b>${esc(item.author ?? "—")}</b> · ${fmtDateTime(item.created_at, ctx.settings.tz)}\n${
+        esc(truncate(item.text, 300))
+      }`
     ).join("\n\n");
     return {
       text: fill(T.feedbackListTitle, { list }),
@@ -187,7 +229,7 @@ export async function panelSection(
         tasks,
         today: todaySubmissions.length,
       }),
-      markup: panelKeyboard(),
+      markup: panelKeyboard(ctx.isAdmin),
     };
   }
 
@@ -201,16 +243,21 @@ export async function panelSection(
         penalty: fmtPoints(settings.daily_penalty),
         due: settings.default_due_hours,
         limit: settings.bot_tasks_per_day,
+        minpct: settings.penalty_min_percent,
+        remedial: settings.remedial_due_hours,
         tz: esc(settings.tz),
       }),
       markup: settingsKeyboard(),
     };
   }
 
-  return { text: T.panelTitle, markup: panelKeyboard() };
+  return { text: T.panelTitle, markup: panelKeyboard(ctx.isAdmin) };
 }
 
-const SETTING_FIELDS: Record<string, { label: string; parse: (raw: string) => number | string | null }> = {
+const SETTING_FIELDS: Record<
+  string,
+  { label: string; parse: (raw: string) => number | string | null }
+> = {
   invite: {
     label: "O'quv kodi",
     parse: (raw) => (raw.length >= 3 && raw.length <= 40 ? raw.trim() : null),
@@ -250,6 +297,20 @@ const SETTING_FIELDS: Record<string, { label: string; parse: (raw: string) => nu
       return Number.isInteger(value) && value >= 0 && value <= 20 ? value : null;
     },
   },
+  minpct: {
+    label: "Jarima chegarasi (%)",
+    parse: (raw) => {
+      const value = Number(raw);
+      return Number.isInteger(value) && value >= 0 && value <= 100 ? value : null;
+    },
+  },
+  remedial: {
+    label: "Qo'shimcha vazifa muddati (soat)",
+    parse: (raw) => {
+      const value = Number(raw);
+      return Number.isInteger(value) && value >= 1 && value <= 720 ? value : null;
+    },
+  },
 };
 
 export async function startSettingEdit(ctx: AppContext, field: string): Promise<string | null> {
@@ -260,7 +321,7 @@ export async function startSettingEdit(ctx: AppContext, field: string): Promise<
 }
 
 export async function saveSettingValue(ctx: AppContext, raw: string): Promise<void> {
-  if (!ctx.isTeacher) return;
+  if (!ctx.isTeacher && !ctx.isAdmin) return;
   const field = String(stateData(ctx).field ?? "");
   const config = SETTING_FIELDS[field];
   if (!config) {
@@ -279,6 +340,8 @@ export async function saveSettingValue(ctx: AppContext, raw: string): Promise<vo
     penalty: "daily_penalty",
     due: "default_due_hours",
     limit: "bot_tasks_per_day",
+    minpct: "penalty_min_percent",
+    remedial: "remedial_due_hours",
   };
   const patch: Record<string, unknown> = { [map[field]]: value };
   await ctx.db.updateSettings(patch);
@@ -315,4 +378,3 @@ export async function sendBroadcast(ctx: AppContext, text: string): Promise<void
   }
   await reply(ctx, fill(T.broadcastDone, { sent, total: students.length }));
 }
-

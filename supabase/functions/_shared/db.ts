@@ -11,11 +11,11 @@ import type {
   SubmissionStatus,
   TaskKind,
   TaskRow,
+  TgMessage,
   TopicRow,
   TopicType,
   UserRow,
   UserStatus,
-  TgMessage,
 } from "./types.ts";
 
 interface ResultLike<T> {
@@ -122,8 +122,7 @@ export class Db {
   readonly client: SupabaseClient;
 
   constructor(client?: SupabaseClient) {
-    this.client =
-      client ??
+    this.client = client ??
       createClient(requireEnv("SUPABASE_URL"), requireEnv("SUPABASE_SERVICE_ROLE_KEY"), {
         auth: { persistSession: false, autoRefreshToken: false },
         global: { headers: { "x-application-name": "ascend-academy-bot" } },
@@ -134,12 +133,16 @@ export class Db {
   async getSettings(): Promise<SettingsRow> {
     return withSettingsCache(async () => {
       const existing = unwrapOne(
-        await this.client.from("app_settings").select("*").eq("id", true).maybeSingle<SettingsRow>(),
+        await this.client.from("app_settings").select("*").eq("id", true).maybeSingle<
+          SettingsRow
+        >(),
         "app_settings",
       );
       if (existing) return normalizeSettings(existing);
       const created = mustOne(
-        await this.client.from("app_settings").insert({ id: true }).select("*").single<SettingsRow>(),
+        await this.client.from("app_settings").insert({ id: true }).select("*").single<
+          SettingsRow
+        >(),
         "app_settings insert",
       );
       return normalizeSettings(created);
@@ -155,11 +158,67 @@ export class Db {
     if (error) throw new Error(`app_settings update: ${error.message}`);
   }
 
+  // ------------------------------------------------------------------- guruhlar
+  /** Guruhni botga ulaydi. Har bir guruh o'z vazifalari va bo'limlari bilan mustaqil ishlaydi. */
+  async linkChat(chatId: number, title: string | null): Promise<void> {
+    const { error } = await this.client.from("bot_chats").upsert({
+      chat_id: chatId,
+      title,
+      linked_at: new Date().toISOString(),
+    }, { onConflict: "chat_id" });
+    if (error) throw new Error(`bot_chats upsert: ${error.message}`);
+  }
+
+  /** Guruh botga ulanganmi. Jadval hali yaratilmagan bo'lsa false (eski sozlama ishlayveradi). */
+  async isLinkedChat(chatId: number): Promise<boolean> {
+    try {
+      const { data, error } = await this.client.from("bot_chats").select("chat_id")
+        .eq("chat_id", chatId).maybeSingle<{ chat_id: number }>();
+      if (error) throw new Error(error.message);
+      return Boolean(data);
+    } catch (error) {
+      console.error("bot_chats tekshirilmadi", error);
+      return false;
+    }
+  }
+
+  /** Guruhda ko'rilgan foydalanuvchi (ro'yxatlar guruh bo'yicha ajratiladi). */
+  async touchMember(chatId: number, userId: number): Promise<void> {
+    try {
+      const { error } = await this.client.from("chat_members").upsert({
+        chat_id: chatId,
+        user_id: userId,
+        last_seen: new Date().toISOString(),
+      }, { onConflict: "chat_id,user_id" });
+      if (error) throw new Error(error.message);
+    } catch (error) {
+      console.error("chat_members yozilmadi", error);
+    }
+  }
+
+  async membersOfChat(chatId: number): Promise<UserRow[]> {
+    try {
+      const { data, error } = await this.client.from("chat_members")
+        .select("user_id, users(*)").eq("chat_id", chatId).limit(500);
+      if (error) throw new Error(error.message);
+      const rows = (data ?? []) as unknown as { users: UserRow | UserRow[] | null }[];
+      return rows
+        .map((row) => (Array.isArray(row.users) ? row.users[0] ?? null : row.users))
+        .filter((row): row is UserRow => Boolean(row));
+    } catch (error) {
+      console.error("chat_members o'qilmadi", error);
+      return [];
+    }
+  }
+
   async addMediaGroupMessage(message: TgMessage): Promise<void> {
     const mediaGroupId = message.media_group_id;
     if (!mediaGroupId) return;
     const expired = new Date(Date.now() - 14 * 86_400_000).toISOString();
-    const cleanup = await this.client.from("telegram_media_group_items").delete().lt("created_at", expired);
+    const cleanup = await this.client.from("telegram_media_group_items").delete().lt(
+      "created_at",
+      expired,
+    );
     if (cleanup.error) throw new Error(`media group cleanup: ${cleanup.error.message}`);
     const { error } = await this.client.from("telegram_media_group_items").upsert({
       chat_id: message.chat.id,
@@ -524,6 +583,24 @@ export class Db {
     return rows[0] ?? null;
   }
 
+  /**
+   * Bo'limdagi eng so'nggi vazifa — holatidan qat'i nazar.
+   * O'quvchi kech javob yuborganda "muddat o'tdi" deb tushuntirish uchun.
+   */
+  async lastTaskInThreadAnyStatus(
+    chatId: number,
+    threadId: number | null,
+  ): Promise<TaskRow | null> {
+    let query = this.client.from("tasks").select("*").eq("chat_id", chatId)
+      .neq("status", "deleted");
+    query = threadId === null ? query.is("thread_id", null) : query.eq("thread_id", threadId);
+    const rows = unwrapMany(
+      await query.order("created_at", { ascending: false }).limit(1),
+      "last task in thread",
+    ) as TaskRow[];
+    return rows[0] ?? null;
+  }
+
   async pointsByTask(userId: number, taskIds: number[]): Promise<Map<number, number>> {
     if (taskIds.length === 0) return new Map();
     const rows = unwrapMany(
@@ -696,7 +773,10 @@ export class Db {
     if (error) throw new Error(`point_events insert: ${error.message}`);
   }
 
-  async leaderboard(since: Date | null, groupName: string | null = null): Promise<LeaderboardRow[]> {
+  async leaderboard(
+    since: Date | null,
+    groupName: string | null = null,
+  ): Promise<LeaderboardRow[]> {
     return unwrapMany(
       await this.client.rpc("leaderboard", {
         p_since: since ? since.toISOString() : null,
@@ -706,7 +786,9 @@ export class Db {
     ) as LeaderboardRow[];
   }
 
-  async pointEventsForDay(day: string): Promise<{ user_id: number; kind: string; points: number }[]> {
+  async pointEventsForDay(
+    day: string,
+  ): Promise<{ user_id: number; kind: string; points: number }[]> {
     return unwrapMany(
       await this.client.from("point_events").select("user_id, kind, points")
         .eq("day", day),
@@ -796,6 +878,8 @@ function normalizeSettings(row: SettingsRow): SettingsRow {
     bot_task_points: Number(row.bot_task_points ?? 3),
     daily_penalty: Number(row.daily_penalty ?? 5),
     default_due_hours: Number(row.default_due_hours ?? 48),
+    penalty_min_percent: Number(row.penalty_min_percent ?? 40),
+    remedial_due_hours: Number(row.remedial_due_hours ?? 24),
     bot_tasks_per_day: Number(row.bot_tasks_per_day ?? 3),
     ai_tutor_per_day: Number(row.ai_tutor_per_day ?? 20),
   };
@@ -816,6 +900,8 @@ export function defaultSettings(): SettingsRow {
     bot_task_points: 3,
     daily_penalty: 5,
     default_due_hours: 48,
+    penalty_min_percent: 40,
+    remedial_due_hours: 24,
     bot_tasks_per_day: 3,
     ai_tutor_per_day: 20,
     ai_enabled: true,

@@ -96,17 +96,27 @@ export function pendingKeyboard(userId: number): TgReplyMarkup {
   ]]);
 }
 
-export function panelKeyboard(): TgReplyMarkup {
-  return inline([
+export function panelKeyboard(isAdmin = false): TgReplyMarkup {
+  const rows: { text: string; callback_data: string }[][] = [
     [{ text: "⏳ Tekshirish navbati", callback_data: "p:queue" }],
     [{ text: "👥 Yangi so'rovlar", callback_data: "p:pending" }],
     [{ text: "🎓 O'quvchilar", callback_data: "p:students" }],
     [{ text: "📚 Vazifalar", callback_data: "p:tasks" }],
-    [{ text: "🧩 Bo'limlar", callback_data: "p:topics" }, { text: "💬 Fikrlar", callback_data: "p:feedback" }],
+    [{ text: "🧩 Bo'limlar", callback_data: "p:topics" }, {
+      text: "💬 Fikrlar",
+      callback_data: "p:feedback",
+    }],
     [{ text: "📈 Statistika", callback_data: "p:stats" }],
     [{ text: "⚙️ Sozlamalar", callback_data: "p:settings" }],
     [{ text: "📢 Hammaga xabar", callback_data: "p:broadcast" }],
-  ]);
+  ];
+  if (isAdmin) {
+    rows.push([
+      { text: "👑 Admin qo'shish", callback_data: "aa:add" },
+      { text: "🚪 Adminlikdan chiqish", callback_data: "aa:out" },
+    ]);
+  }
+  return inline(rows);
 }
 
 export function settingsKeyboard(): TgReplyMarkup {
@@ -117,6 +127,8 @@ export function settingsKeyboard(): TgReplyMarkup {
     [{ text: "⚠️ Kunlik jarima", callback_data: "s:penalty" }],
     [{ text: "⏰ Vazifa muddati (soat)", callback_data: "s:due" }],
     [{ text: "🎯 Kunlik bot vazifalari", callback_data: "s:limit" }],
+    [{ text: "📉 Jarima chegarasi (%)", callback_data: "s:minpct" }],
+    [{ text: "🧾 Qo'shimcha vazifa muddati (soat)", callback_data: "s:remedial" }],
     [{ text: "⬅️ Panel", callback_data: "p:root" }],
   ]);
 }
@@ -135,7 +147,12 @@ export function topicTypeKeyboard(topicId: number): TgReplyMarkup {
 export function topicsListKeyboard(
   topics: { id: number; name: string | null; thread_id: number; type: string }[],
 ): TgReplyMarkup {
-  const icon: Record<string, string> = { task: "📝", questions: "❓", announce: "🏆", ignore: "🚫" };
+  const icon: Record<string, string> = {
+    task: "📝",
+    questions: "❓",
+    announce: "🏆",
+    ignore: "🚫",
+  };
   return inline(
     topics.slice(0, 40).map((topic) => [{
       text: `${icon[topic.type] ?? "•"} ${topic.name ?? `#${topic.thread_id}`}`.slice(0, 60),

@@ -88,7 +88,13 @@ export type Role = "admin" | "teacher" | "student";
 export type UserStatus = "pending" | "active" | "rejected" | "blocked";
 export type TaskKind = "personal" | "class" | "self_study" | "bot";
 export type PointsMode = "graded" | "fixed";
-export type SubmissionStatus = "pending" | "ai_graded" | "manual" | "graded" | "missed" | "rejected";
+export type SubmissionStatus =
+  | "pending"
+  | "ai_graded"
+  | "manual"
+  | "graded"
+  | "missed"
+  | "rejected";
 export type Period = "week" | "month" | "all";
 export type TopicKind = "tasks" | "self_study" | "staff" | "questions";
 /** Guruh bo'limi turi: bot shunga qarab ish tutadi. */
@@ -134,6 +140,10 @@ export interface SettingsRow {
   bot_task_points: number;
   daily_penalty: number;
   default_due_hours: number;
+  /** Shu foizdan past ball - jarima (qo'shimcha vazifa). */
+  penalty_min_percent: number;
+  /** Qo'shimcha vazifa uchun muddat (soat). */
+  remedial_due_hours: number;
   bot_tasks_per_day: number;
   ai_tutor_per_day: number;
   ai_enabled: boolean;

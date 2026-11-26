@@ -1,4 +1,4 @@
-import { notifyStaff, reply, type AppContext } from "../context.ts";
+import { type AppContext, notifyStaff, reply } from "../context.ts";
 import { onboardingSlide } from "../assets/onboarding.ts";
 import { classifyTopicName, routeThread, topicTypeLabel, trackLabel } from "../logic/routing.ts";
 import { sendLeaderboardCard } from "../logic/leaderboardCard.ts";
@@ -10,9 +10,9 @@ import { startBotKeyboard, taskKeyboard, topicTypeKeyboard } from "../ui.ts";
 import {
   commandArgs,
   extractContent,
+  type ExtractedContent,
   isCommand,
   REACTION,
-  type ExtractedContent,
 } from "../telegram.ts";
 import { ensureUser } from "./onboarding.ts";
 import type { SettingsRow, TaskKind, TaskRow, TopicRow, UserRow } from "../types.ts";
@@ -65,12 +65,17 @@ async function trackTopic(ctx: AppContext): Promise<TopicRow> {
   }
 
   // 2) Eski sozlamalar orqali ulangan bo'limlar (/mavzu) — jimgina o'tkaziladi.
+  // Thread ID lar har bir guruhda boshqacha, shuning uchun faqat asosiy guruhga qo'llanadi.
   const settings = ctx.settings;
-  const legacy: { id: number | null; type: TopicRow["type"]; track: string | null }[] = [
-    { id: settings.tasks_thread_id, type: "task", track: null },
-    { id: settings.self_study_thread_id, type: "task", track: "self_study" },
-    { id: settings.questions_thread_id, type: "questions", track: null },
-  ];
+  const legacy: { id: number | null; type: TopicRow["type"]; track: string | null }[] = Number(
+      settings.group_chat_id,
+    ) !== ctx.chatId
+    ? []
+    : [
+      { id: settings.tasks_thread_id, type: "task", track: null },
+      { id: settings.self_study_thread_id, type: "task", track: "self_study" },
+      { id: settings.questions_thread_id, type: "questions", track: null },
+    ];
   const match = legacy.find((row) => row.id && Number(row.id) === threadId);
   if (match) {
     await ctx.db.updateTopic(topic.id, { type: match.type, track: match.track, announced: true });
@@ -107,6 +112,28 @@ async function askTopicTypeOnce(ctx: AppContext, topic: TopicRow): Promise<void>
     topic,
     fill(T.topicNewAsk, { name: esc(topic.name ?? `#${topic.thread_id}`) }),
   );
+}
+
+/**
+ * Nomidan turi aniq bo'lgan, lekin "e'tiborsiz" bo'lib qolgan bo'limni tiklaydi.
+ * Aks holda ustoz tashlagan vazifa jimgina yo'qolib qoladi.
+ */
+async function repairIgnoredTopic(ctx: AppContext, topic: TopicRow): Promise<TopicRow> {
+  if (topic.type !== "ignore") return topic;
+  const guess = classifyTopicName(topic.name);
+  if (!guess.confident || guess.type === "ignore") return topic;
+  await ctx.db.updateTopic(topic.id, { type: guess.type, track: guess.track, announced: true });
+  const updated: TopicRow = { ...topic, type: guess.type, track: guess.track, announced: true };
+  await announceTopic(
+    ctx,
+    updated,
+    fill(T.topicNewAuto, {
+      name: esc(topic.name ?? `#${topic.thread_id}`),
+      type: topicTypeLabel(guess.type),
+      track: trackSuffix(guess.track),
+    }),
+  );
+  return updated;
 }
 
 /** /bolim — bo'lim turini belgilash (kodga ID qotirilmagan). */
@@ -164,7 +191,9 @@ export async function createTaskFromContent(
   if (!content.fileId && raw.length < MIN_TASK_TEXT) return;
 
   const parsedDue = extractDue(raw);
-  const { prompt, answerKey } = splitAnswerKey(parsedDue.text || raw || content.fileName || "Fayl topshirig'i");
+  const { prompt, answerKey } = splitAnswerKey(
+    parsedDue.text || raw || content.fileName || "Fayl topshirig'i",
+  );
   const dueHours = options.dueHours ?? ctx.settings.default_due_hours ?? DEFAULT_DUE_HOURS[kind];
   const title = truncate(prompt || content.fileName || "Fayl topshirig'i", 60);
 
@@ -197,7 +226,10 @@ export async function createTaskFromContent(
   if (!parsedDue.due) {
     await notifyStaff(
       ctx,
-      `⏰ Vazifa #${createdTask.id} uchun muddat matnda topilmadi. Ustoz, vazifa xabariga reply qilib /muddat 3 yoki /muddat 2026-12-01 yuboring. Hozircha standart muddat: ${dueHours} soat.`,
+      `⏰ Vazifa #${createdTask.id} uchun muddat matnda topilmadi.\n\n` +
+        `Ustoz, bu vazifaga qancha muddat kerak? Vazifa xabariga reply qilib ` +
+        `/muddat 3 kun (yoki /muddat 6 soat, /muddat 2026-12-01) yuboring.\n` +
+        `Hozircha standart muddat: ${dueHours} soat. Muddat o'tsa javoblar qabul qilinmaydi.`,
     );
   }
   // Guruhga xabar yozmaymiz — faqat 👌 reaksiya: bot vazifani qabul qildi.
@@ -207,7 +239,7 @@ export async function createTaskFromContent(
 /** Ustoz vazifa xabarini tahrirlasa, vazifa matni ham yangilanadi. */
 async function updateTaskFromEdit(ctx: AppContext): Promise<void> {
   const message = ctx.message;
-  if (!message || !ctx.isTeacher) return;
+  if (!message || (!ctx.isTeacher && !ctx.isAdmin)) return;
   const task = await ctx.db.taskByMessage(ctx.chatId, message.message_id);
   if (!task) return;
   const content = extractContent(message);
@@ -233,17 +265,30 @@ async function linkGroup(ctx: AppContext): Promise<void> {
     await reply(ctx, T.onlyStaff);
     return;
   }
-  if (ctx.settings.group_chat_id === ctx.chatId) {
+  const title = ctx.message?.chat.title ?? null;
+  const alreadyLinked = Number(ctx.settings.group_chat_id) === ctx.chatId ||
+    (await ctx.db.isLinkedChat(ctx.chatId));
+  if (alreadyLinked) {
+    try {
+      await ctx.db.linkChat(ctx.chatId, title);
+    } catch (error) {
+      console.error("guruh yozilmadi", error);
+    }
     await reply(ctx, T.groupLinkedOnce);
     return;
   }
-  await ctx.db.updateSettings({
-    group_chat_id: ctx.chatId,
-    group_title: ctx.message?.chat.title ?? null,
-  });
-  ctx.settings = { ...ctx.settings, group_chat_id: ctx.chatId, group_title: ctx.message?.chat.title ?? null };
+  try {
+    await ctx.db.linkChat(ctx.chatId, title);
+  } catch (error) {
+    console.error("guruh yozilmadi (bot_chats jadvali bo'lmasligi mumkin)", error);
+  }
+  // Birinchi guruh asosiy bo'lib qoladi: keyingi guruhlar uni bosib ketmaydi.
+  if (!ctx.settings.group_chat_id || Number(ctx.settings.group_chat_id) === ctx.chatId) {
+    await ctx.db.updateSettings({ group_chat_id: ctx.chatId, group_title: title });
+    ctx.settings = { ...ctx.settings, group_chat_id: ctx.chatId, group_title: title };
+  }
   await trackTopic(ctx);
-  await reply(ctx, fill(T.linked, { title: esc(ctx.message?.chat.title ?? "guruh") }));
+  await reply(ctx, fill(T.linked, { title: esc(title ?? "guruh") }));
 }
 
 /** /yonalish speaking — bo'limga yo'nalish nomini beradi ("-" bilan tozalanadi). */
@@ -261,13 +306,18 @@ async function setTrack(ctx: AppContext, raw: string): Promise<void> {
     await reply(ctx, T.trackAsk);
     return;
   }
-  const track = value === "-" ? null : value.replace(/[^\p{L}\p{N}]+/gu, "_").replace(/^_+|_+$/g, "").slice(0, 30);
+  const track = value === "-"
+    ? null
+    : value.replace(/[^\p{L}\p{N}]+/gu, "_").replace(/^_+|_+$/g, "").slice(0, 30);
   const topic = await trackTopic(ctx);
   await ctx.db.updateTopic(topic.id, { track, announced: true });
-  await reply(ctx, fill(T.trackSet, {
-    name: esc(topic.name ?? `#${topic.thread_id}`),
-    track: track ? esc(trackLabel(track)) : "—",
-  }));
+  await reply(
+    ctx,
+    fill(T.trackSet, {
+      name: esc(topic.name ?? `#${topic.thread_id}`),
+      track: track ? esc(trackLabel(track)) : "—",
+    }),
+  );
 }
 
 /** /qoidalar — qoidalarni guruhga rasm bilan yuboradi va qadab qo'yadi (faqat ustoz/admin). */
@@ -452,7 +502,21 @@ function isChatterNotSubmission(content: ExtractedContent | null, repliedTask: b
   if (repliedTask) return false;
   if (hasMedia(content)) return false;
   const text = content.text.trim().toLowerCase().replace(/[!.?]+$/g, "");
-  return /^(?:ok(?:ay)?|rahmat|tashakkur|thanks?|salom|assalomu alaykum|yaxshi|mayli|tushunarli|👍|✅)$/.test(text);
+  if (!text) return false;
+  if (
+    /^(?:ok(?:ay)?|rahmat|tashakkur|thanks?|salom|assalomu alaykum|yaxshi|mayli|tushunarli|👍|✅)$/
+      .test(text)
+  ) {
+    return true;
+  }
+  // "rahmat ustoz", "xo'p bo'ladi aka" kabi qisqa minnatdorchilik — topshiriq emas.
+  const stripped = text
+    .replace(
+      /\b(?:ok(?:ay)?|rahmat|tashakkur|thanks?|salom|assalomu alaykum|yaxshi|mayli|tushunarli|zo'r|xop|xo'p|qabul|ustoz|aka|opa)\b/g,
+      "",
+    )
+    .replace(/[\s,!.;:?👍✅🙏]+/gu, "");
+  return stripped.length === 0 && text.length <= 40;
 }
 
 function mentionedTrack(text: string): string | null {
@@ -475,7 +539,9 @@ async function chooseAnswerTask(
   content: ExtractedContent,
 ): Promise<TaskRow | null> {
   if (route.type === "student") {
-    const personal = candidates.find((task) => task.kind === "personal" && task.assigned_user_id === route.userId);
+    const personal = candidates.find((task) =>
+      task.kind === "personal" && task.assigned_user_id === route.userId
+    );
     if (personal) return personal;
   }
   const wantedTrack = mentionedTrack(content.text) ??
@@ -493,7 +559,9 @@ async function chooseAnswerTask(
     );
     if (match) return match.task;
   }
-  const inThread = candidates.find((task) => task.thread_id !== null && Number(task.thread_id) === Number(ctx.threadId));
+  const inThread = candidates.find((task) =>
+    task.thread_id !== null && Number(task.thread_id) === Number(ctx.threadId)
+  );
   if (inThread) return inThread;
   return candidates[0] ?? null;
 }
@@ -518,7 +586,10 @@ async function routeGroupMessage(
   }
   // Boshqa bo'limlarda (General, ustozlar, noma'lum) bot jim turadi — spam yo'q.
   if (route.type === "staff" && !repliedTask) return;
-  if (route.type === "ignored" && !repliedTask && (!topic || topic.announced) && topic?.thread_id !== 0) {
+  if (
+    route.type === "ignored" && !repliedTask && (!topic || topic.announced) &&
+    topic?.thread_id !== 0
+  ) {
     // Noma'lum bo'limga o'quvchi fayl tashlasa — ustozdan bir marta so'raymiz.
     if (topic && !ctx.isTeacher && content && !isChatterNotSubmission(content, false)) {
       await askTopicTypeOnce(ctx, topic);
@@ -532,36 +603,69 @@ async function routeGroupMessage(
     ? "personal"
     : "class";
 
-  // --- Ustoz: oddiy xabar = kunlik vazifa ---
-  if (ctx.isTeacher) {
-    if (route.type === "group_root" || route.type === "unknown_topic" || route.type === "questions") return;
+  // --- Vazifani faqat ustoz (role = teacher) tashlaydi: oddiy xabari yangi vazifa bo'ladi. ---
+  // Admin ham o'quvchi kabi topshiradi (u vazifani faqat /vazifa buyrug'i bilan yaratadi).
+  const isAssigner = Boolean(
+    ctx.user && ctx.user.role === "teacher" && ctx.user.status === "active" && !ctx.isAdmin,
+  );
+  if (isAssigner) {
+    if (
+      route.type === "group_root" || route.type === "unknown_topic" || route.type === "questions"
+    ) return;
     if (!content) return;
     await createTaskFromContent(ctx, kind, content, { assignedUserId: student?.id ?? null });
     return;
   }
 
-  // --- O'quvchi: ro'yxatdan o'tmagan bo'lsa ham ID, nik va ism avtomatik saqlanadi ---
+  // --- O'quvchi yoki admin: vazifa javobini topshiradi ---
   if (isChatterNotSubmission(content, Boolean(repliedTask))) return;
   const sender = await ensureUser(ctx);
-  if (sender.role !== "student" || sender.status !== "active") return; // bloklangan / rad etilgan
+  const canSubmit = sender.status === "active" &&
+    (sender.role === "student" || sender.role === "admin");
+  if (!canSubmit) return; // bloklangan / rad etilgan / ustoz
 
   if (route.type === "student" && student && student.id !== sender.id) return;
 
   const candidates = await ctx.db.answerableTasksInChat(sender.id, ctx.chatId);
-  const task = repliedTask ?? (content ? await chooseAnswerTask(ctx, candidates, route, content) : null);
+  const task = repliedTask ??
+    (content ? await chooseAnswerTask(ctx, candidates, route, content) : null);
   if (!task) {
     if (route.type === "ignored" && topic && !topic.announced && !ctx.isTeacher) {
       await askTopicTypeOnce(ctx, topic);
     }
-    // Bu bo'limda hali vazifa yo'q: jim, faqat 🤷 reaksiya.
+    // Bo'limda yopilgan yoki muddati o'tgan vazifa bo'lsa — jim qolmay, tushuntiramiz.
+    const previous = await ctx.db.lastTaskInThreadAnyStatus(ctx.chatId, ctx.threadId);
+    if (previous && previous.status !== "active") {
+      await ctx.tg.reactSafe(ctx.chatId, message.message_id, REACTION.think);
+      await reply(ctx, T.taskExpired);
+      return;
+    }
+    // Faol vazifa bor, lekin bu o'quvchi uni allaqachon topshirgan — jim, faqat reaksiya.
+    if (previous) {
+      await ctx.tg.reactSafe(ctx.chatId, message.message_id, REACTION.nothing);
+      return;
+    }
+    // Bo'limda umuman vazifa yo'q: reaksiya va qisqa tushuntirish (jim qolmaydi).
     await ctx.tg.reactSafe(ctx.chatId, message.message_id, REACTION.nothing);
+    if (route.type === "tasks" || route.type === "self_study" || route.type === "student") {
+      await reply(ctx, T.noTaskInTopic);
+    }
     return;
   }
   if (task.status !== "active") {
     await ctx.tg.reactSafe(ctx.chatId, message.message_id, REACTION.think);
+    await reply(ctx, T.taskExpired);
     return;
   }
-  if ((task.kind === "personal" || task.kind === "bot") && task.assigned_user_id !== sender.id) return;
+  // Muddat o'tgan bo'lsa javob qabul qilinmaydi (ustoz /muddat bilan uzaytira oladi).
+  if (task.due_at && new Date(task.due_at).getTime() < Date.now()) {
+    await ctx.tg.reactSafe(ctx.chatId, message.message_id, REACTION.think);
+    await reply(ctx, T.taskExpired);
+    return;
+  }
+  if ((task.kind === "personal" || task.kind === "bot") && task.assigned_user_id !== sender.id) {
+    return;
+  }
   await handleSubmission(ctx, task, sender);
 }
 
@@ -594,6 +698,18 @@ async function collectPhotoAlbum(ctx: AppContext): Promise<boolean> {
   return false;
 }
 
+/** Guruh reytingi: faqat shu guruh a'zolari (boshqa guruh o'quvchilari aralashmaydi). */
+async function groupLeaderboard(ctx: AppContext, since: Date | null) {
+  const rows = await ctx.db.leaderboard(
+    since,
+    ctx.message?.chat.title ?? ctx.settings.group_title,
+  );
+  const members = await ctx.db.membersOfChat(ctx.chatId);
+  if (members.length === 0) return rows;
+  const ids = new Set(members.map((member) => member.id));
+  return rows.filter((row) => ids.has(Number(row.user_id)));
+}
+
 export async function handleGroup(ctx: AppContext): Promise<void> {
   const settings = ctx.settings;
   const text = ctx.message?.text ?? "";
@@ -605,9 +721,21 @@ export async function handleGroup(ctx: AppContext): Promise<void> {
     await linkGroup(ctx);
     return;
   }
-  if (settings.group_chat_id !== ctx.chatId) {
+  // Har bir guruh alohida ulanadi: bot bir nechta guruhda bir vaqtda ishlaydi.
+  const linked = Number(settings.group_chat_id) === ctx.chatId ||
+    (await ctx.db.isLinkedChat(ctx.chatId));
+  if (!linked) {
     if (isCommand(text, "/start")) await reply(ctx, T.groupNotLinked);
     return;
+  }
+
+  // A'zolik va guruh nomi: ro'yxatlar faqat shu guruh o'quvchilarini ko'rsatadi.
+  if (ctx.user) {
+    await ctx.db.touchMember(ctx.chatId, ctx.user.id);
+    const chatTitle = ctx.message?.chat.title ?? null;
+    if (chatTitle && ctx.user.group_name !== chatTitle) {
+      ctx.user = await ctx.db.updateUser(ctx.user.id, { group_name: chatTitle });
+    }
   }
 
   if (await collectPhotoAlbum(ctx)) return;
@@ -642,7 +770,7 @@ export async function handleGroup(ctx: AppContext): Promise<void> {
   if (isCommand(text, "/reyting") || isCommand(text, "/leaderboard") || isCommand(text, "/hafta")) {
     const weekly = isCommand(text, "/hafta");
     const since = weekly ? startOfWeek(new Date(), ctx.settings.tz) : null;
-    const rows = await ctx.db.leaderboard(since, ctx.message?.chat.title ?? settings.group_title);
+    const rows = await groupLeaderboard(ctx, since);
     await sendLeaderboardCard(ctx.tg, ctx.chatId, rows, {
       period: weekly ? "week" : "all",
       threadId: ctx.threadId,
@@ -656,7 +784,7 @@ export async function handleGroup(ctx: AppContext): Promise<void> {
       await reply(ctx, T.onlyStaff);
       return;
     }
-    const rows = await ctx.db.leaderboard(null, ctx.message?.chat.title ?? settings.group_title);
+    const rows = await groupLeaderboard(ctx, null);
     await sendLeaderboardCard(ctx.tg, ctx.chatId, rows, {
       period: "all",
       threadId: ctx.threadId,
@@ -688,7 +816,10 @@ export async function handleGroup(ctx: AppContext): Promise<void> {
     const content = extractContent(ctx.message!);
     const prompt = commandArgs(text, "/vazifa");
     if (!content || prompt.trim().length < MIN_TASK_TEXT) {
-      await reply(ctx, "Vazifa matnini buyruqdan keyin yozing. Masalan: /vazifa 5 ta gap yozing, muddat: 3 kun");
+      await reply(
+        ctx,
+        "Vazifa matnini buyruqdan keyin yozing. Masalan: /vazifa 5 ta gap yozing, muddat: 3 kun",
+      );
       return;
     }
     await createTaskFromContent(ctx, "class", { ...content, text: prompt });
@@ -727,11 +858,13 @@ export async function handleGroup(ctx: AppContext): Promise<void> {
   if (text.startsWith("/")) return; // boshqa buyruqlar (boshqa botlarniki ham bo'lishi mumkin)
 
   const topicOwner = ctx.threadId ? await ctx.db.userByThread(ctx.threadId) : null;
-  const topic = topicOwner ? null : await trackTopic(ctx);
+  let topic = topicOwner ? null : await trackTopic(ctx);
+  // "E'tiborsiz" qolib ketgan vazifa bo'limini nomidan tiklaymiz — ustoz xabari yo'qolmasin.
+  if (topic && (ctx.isTeacher || ctx.isAdmin)) topic = await repairIgnoredTopic(ctx, topic);
   const route = routeThread({
     chatId: ctx.chatId,
     threadId: ctx.threadId,
-    settings,
+    settings: { ...settings, group_chat_id: ctx.chatId },
     student: topicOwner ? { userId: topicOwner.id, tgId: Number(topicOwner.tg_id) } : null,
     topic: topic ? { type: topic.type, track: topic.track } : null,
   });

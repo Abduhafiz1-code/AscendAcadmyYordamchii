@@ -1,13 +1,13 @@
-import { generateDailyTask, AiError } from "../ai.ts";
+import { AiError, generateDailyTask } from "../ai.ts";
 import { aiConfig } from "../env.ts";
 import {
+  type AppContext,
   bumpBotTaskCounter,
   clearState,
   freshCounters,
   notifyStaff,
   reply,
   setState,
-  type AppContext,
 } from "../context.ts";
 import { esc, fmtPoints } from "../logic/format.ts";
 import { renderLeaderboard } from "../logic/leaderboard.ts";
@@ -40,7 +40,10 @@ import { handleSubmission } from "./submissions.ts";
 export async function sendDailyTask(ctx: AppContext, user: UserRow): Promise<void> {
   const teacherTask = await ctx.db.answerableTask(user.id, ["personal", "class", "self_study"]);
   if (teacherTask) {
-    await reply(ctx, "Avval ustoz bergan vazifani topshirib, so'ng botdan kunlik vazifa olishingiz mumkin.");
+    await reply(
+      ctx,
+      "Avval ustoz bergan vazifani topshirib, so'ng botdan kunlik vazifa olishingiz mumkin.",
+    );
     return;
   }
   if (!ctx.settings.ai_enabled) {
@@ -165,7 +168,10 @@ async function manageAdmin(ctx: AppContext, text: string): Promise<boolean> {
     await ctx.db.updateUser(target.id, { role: "admin", status: "active", admin_opt_out: false });
     await reply(ctx, `✅ ${esc(target.full_name ?? "Foydalanuvchi")} admin qilindi.`);
     try {
-      await ctx.tg.sendMessage(Number(target.tg_id), "Siz bot administratori bo'ldingiz. /panel orqali boshqarasiz.");
+      await ctx.tg.sendMessage(
+        Number(target.tg_id),
+        "Siz bot administratori bo'ldingiz. /panel orqali boshqarasiz.",
+      );
     } catch (error) {
       console.error("yangi adminga xabar yuborilmadi", error);
     }
@@ -177,16 +183,16 @@ async function manageAdmin(ctx: AppContext, text: string): Promise<boolean> {
       return true;
     }
     if (!(await ctx.db.hasOtherAdmin(ctx.user.id))) {
-      await reply(ctx, "Oxirgi admin chiqib keta olmaydi. Avval /admin_qosh orqali boshqa admin qo'shing.");
+      await reply(ctx, T.lastAdminWarn);
       return true;
     }
     ctx.user = await ctx.db.updateUser(ctx.user.id, {
-      role: "teacher",
+      role: ctx.user.role === "admin" ? "teacher" : ctx.user.role,
       status: "active",
       admin_opt_out: true,
     });
     ctx.isAdmin = false;
-    await reply(ctx, "Adminlikdan chiqdingiz. Hisobingiz ustoz sifatida qoldi.");
+    await reply(ctx, T.adminLeft, { markup: mainMenu(ctx.isTeacher) });
     return true;
   }
   return false;
@@ -249,7 +255,11 @@ async function redeemTeacherInvite(ctx: AppContext, code: string): Promise<void>
   await reply(ctx, T.inviteUsed, { markup: mainMenu(true) });
 }
 
-async function handlePrivateCommand(ctx: AppContext, text: string, user: UserRow): Promise<boolean> {
+async function handlePrivateCommand(
+  ctx: AppContext,
+  text: string,
+  user: UserRow,
+): Promise<boolean> {
   if (await manageAdmin(ctx, text)) return true;
   if (text === BTN.tasks || isCommand(text, "/vazifalarim")) {
     await reply(ctx, await renderMyTasks(ctx, user), { markup: mainMenu(ctx.isTeacher) });
@@ -384,10 +394,13 @@ export async function handlePrivate(ctx: AppContext): Promise<void> {
     await ctx.db.createFeedback(user.id, text.slice(0, 2000));
     await clearState(ctx);
     await reply(ctx, T.feedbackThanks, { markup: mainMenu(ctx.isTeacher) });
-    await notifyStaff(ctx, fill(T.feedbackStaff, {
-      name: esc(user.full_name ?? ctx.sender.username ?? "—"),
-      text: esc(text.slice(0, 1500)),
-    }));
+    await notifyStaff(
+      ctx,
+      fill(T.feedbackStaff, {
+        name: esc(user.full_name ?? ctx.sender.username ?? "—"),
+        text: esc(text.slice(0, 1500)),
+      }),
+    );
     return;
   }
   if (ctx.state === "ask_ai") {
@@ -401,6 +414,33 @@ export async function handlePrivate(ctx: AppContext): Promise<void> {
   }
   if (ctx.state === "set_value") {
     await saveSettingValue(ctx, text);
+    return;
+  }
+  if (ctx.state === "admin_add") {
+    await clearState(ctx);
+    if (!ctx.isAdmin) {
+      await reply(ctx, T.onlyAdmin);
+      return;
+    }
+    const raw = text.replace(/^@/, "").trim();
+    if (!raw) {
+      await reply(ctx, T.adminAddAsk);
+      return;
+    }
+    const target = /^\d{5,}$/.test(raw)
+      ? await ctx.db.userByTg(Number(raw))
+      : await ctx.db.userByUsername(raw);
+    if (!target) {
+      await reply(ctx, T.adminNoUser);
+      return;
+    }
+    await ctx.db.updateUser(target.id, { role: "admin", status: "active", admin_opt_out: false });
+    await reply(ctx, fill(T.adminAdded, { name: esc(target.full_name ?? "—") }));
+    try {
+      await ctx.tg.sendMessage(Number(target.tg_id), T.adminYouAre);
+    } catch (error) {
+      console.error("yangi adminga xabar yuborilmadi", error);
+    }
     return;
   }
 
@@ -439,9 +479,7 @@ export async function handlePrivate(ctx: AppContext): Promise<void> {
       ctx,
       statusText,
       {
-        markup: user.status === "active"
-          ? mainMenu(ctx.isTeacher)
-          : pendingUserKeyboard(),
+        markup: user.status === "active" ? mainMenu(ctx.isTeacher) : pendingUserKeyboard(),
       },
     );
     return;

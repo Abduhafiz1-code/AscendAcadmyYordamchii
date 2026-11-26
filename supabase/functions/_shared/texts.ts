@@ -18,8 +18,7 @@ export const BTN = {
 } as const;
 
 export const T = {
-  welcomeStart:
-    "Assalomu alaykum, <b>{{name}}</b>! 👋\n\n" +
+  welcomeStart: "Assalomu alaykum, <b>{{name}}</b>! 👋\n\n" +
     "Men <b>Ascend Academy</b>ning yordamchi botiman.\n\n" +
     "🤖 <b>Nima qilaman?</b>\n" +
     "• Guruhga tashlagan topshiriqlaringizni qabul qilaman (ovoz, matn, rasm, video, fayl)\n" +
@@ -27,8 +26,7 @@ export const T = {
     "• Haftalik reytingni e'lon qilaman\n\n" +
     "Boshlash uchun quyidagi tugmalardan birini tanlang 👇",
 
-  howTo:
-    "📖 <b>Bot qanday ishlatiladi?</b>\n\n" +
+  howTo: "📖 <b>Bot qanday ishlatiladi?</b>\n\n" +
     "1️⃣ Ustoz guruhdagi <b>yo'nalish bo'limiga</b> (Writing, Speaking va h.k.) kunlik vazifani tashlaydi.\n" +
     "2️⃣ Siz javobingizni (ovozli xabar, matn, rasm, video yoki fayl) shu bo'limga yuborasiz — \n" +
     "ro'yxatdan o'tish shart emas, ID va nik avtomatik saqlanadi.\n" +
@@ -40,11 +38,9 @@ export const T = {
 
   adminClaimed: "✅ Siz bot administratori sifatida tanildingiz. Boshqaruv: /panel",
 
-  nameConfirm:
-    "👋 Siz <b>{{group}}</b> guruhidasiz.\n\n" +
+  nameConfirm: "👋 Siz <b>{{group}}</b> guruhidasiz.\n\n" +
     "Telegramdagi ismingiz: <b>{{name}}</b>\n\nShu ism bilan ro'yxatdan o'tkazaymi?",
-  notMember:
-    "❌ Siz hali <b>{{group}}</b> guruhida emassiz.\n\n" +
+  notMember: "❌ Siz hali <b>{{group}}</b> guruhida emassiz.\n\n" +
     "Avval guruhga qo'shiling, so'ng /start ni qayta bosing.",
   noGroupYet: "Guruh hali botga ulanmagan. Administrator guruhda /ulash yuborishi kerak.",
   registeredAuto:
@@ -53,23 +49,20 @@ export const T = {
   studentRegisteredTeacher:
     "🆕 <b>Yangi o'quvchi ro'yxatdan o'tdi</b>\n\n👤 {{name}}\n🎓 {{group}}\n📞 {{phone}}\n🔗 @{{username}}",
 
-  welcomeNew:
-    "Assalomu alaykum! 👋\n\n" +
+  welcomeNew: "Assalomu alaykum! 👋\n\n" +
     "Men <b>Ascend Academy</b> yordamchi ustoziman. Guruhdagi vazifalarni tekshiraman, " +
     "ball qo'yaman va reytingni yuritaman.\n\n" +
     "Ro'yxatdan o'tish uchun bir necha savolga javob bering.",
 
   askName: "1/4 — <b>Ism va familiyangizni</b> yozing:",
   askGroup: "2/4 — <b>Guruh nomini</b> yozing (masalan: IELTS-2, General English):",
-  askTeacher:
-    "3/4 — <b>Qaysi ustozda o'qiysiz?</b>\n\n" +
+  askTeacher: "3/4 — <b>Qaysi ustozda o'qiysiz?</b>\n\n" +
     "Ro'yxatdan ustozingizni tanlang — so'rovingiz shu ustozga yuboriladi. " +
     "Ustozingiz ro'yxatda bo'lmasa, «O'tkazib yuborish» tugmasini bosing.",
   teacherSelected: "✅ Ustoz: <b>{{name}}</b>",
   noTeachers:
     "Hozircha ustozlar ro'yxatga olinmagan. O'tkazib yuborsangiz, so'rov tizimdagi administratorlarga yuboriladi.",
-  askPhone:
-    "4/4 — <b>Telefon raqamingizni</b> yuboring.\n\n" +
+  askPhone: "4/4 — <b>Telefon raqamingizni</b> yuboring.\n\n" +
     "Tugma orqali yuborsangiz yoki +998901234567 ko'rinishida yozsangiz bo'ladi.",
 
   nameTooShort: "Ism juda qisqa. Iltimos, ism va familiyani to'liq yozing.",
@@ -92,8 +85,7 @@ export const T = {
   unknownCommand:
     "Buyruqni tushunmadim. /yordam ni ko'ring yoki savolingizni yozing — AI ustoz javob beradi.",
 
-  helpStudent:
-    "📖 <b>Yordam</b>\n\n" +
+  helpStudent: "📖 <b>Yordam</b>\n\n" +
     "📌 Ustoz bergan vazifaning bo'limiga (Writing, Speaking, ...) javobingizni tashlang — " +
     "ovozli xabar, matn, rasm, video yoki fayl bo'lishi mumkin. Bot reaksiya qo'yadi.\n\n" +
     "📊 /natijam — ballaringiz va oxirgi topshiriqlar\n" +
@@ -104,8 +96,7 @@ export const T = {
     "❓ /savol &lt;savol&gt; — AI ustozga savol\n" +
     "🆔 /id — Telegram ID ingiz",
 
-  helpStaff:
-    "🛠 <b>Ustoz buyruqlari</b>\n\n" +
+  helpStaff: "🛠 <b>Ustoz buyruqlari</b>\n\n" +
     "<b>Guruhda:</b>\n" +
     "/ulash — guruhni botga ulash (bo'limlar o'zgarmaydi)\n" +
     "/bolim — joriy bo'lim turini belgilash (vazifa / savollar / reyting / e'tiborsiz)\n" +
@@ -122,51 +113,43 @@ export const T = {
     "Vazifa berish: kerakli <b>yo'nalish bo'limiga</b> oddiy xabar yozing (matn, rasm, ovoz, fayl) — " +
     "bot uni kunlik vazifa deb qabul qiladi va 👌 reaksiya qo'yadi. Javob yozish shart emas.",
 
-  taskPostedClass:
-    "✅ <b>Vazifa qabul qilindi</b> · #{{id}}\n" +
+  taskPostedClass: "✅ <b>Vazifa qabul qilindi</b> · #{{id}}\n" +
     "🎯 Baholash: 0.5–10 ball\n" +
     "✍️ Javobingizni shu vazifa xabariga <b>reply</b> qilib yuboring.\n" +
     "📎 Matn, rasm, ovoz, video yoki fayl — hammasi qabul qilinadi.",
 
-  taskPostedSelf:
-    "✅ <b>Self study vazifasi</b> · #{{id}}\n" +
+  taskPostedSelf: "✅ <b>Self study vazifasi</b> · #{{id}}\n" +
     "🎁 Bajarilganda: <b>+{{points}} ball</b>\n" +
     "✍️ Javobni shu xabarga <b>reply</b> qilib yuboring.",
 
-  taskPostedPersonal:
-    "✅ <b>Shaxsiy vazifa</b> · #{{id}}\n" +
+  taskPostedPersonal: "✅ <b>Shaxsiy vazifa</b> · #{{id}}\n" +
     "🎯 Baholash: 0.5–10 ball\n" +
     "✍️ Javobni shu xabarga <b>reply</b> qilib yuboring.",
 
-  onlyStaff: "Bu amal faqat ustozlar uchun.",
+  onlyStaff: "Bu amal faqat ustoz va admin uchun.",
   onlyPrivate: "Bu buyruqni botning shaxsiy chatida ishlating.",
   onlyGroup: "Bu buyruqni guruhda ishlating.",
-  needForum:
-    "Guruhda <b>Mavzular (Topics)</b> yoqilmagan. Guruh sozlamalari → Topics ni yoqing, " +
+  needForum: "Guruhda <b>Mavzular (Topics)</b> yoqilmagan. Guruh sozlamalari → Topics ni yoqing, " +
     "so'ng /ulash ni qayta yuboring.",
-  needBotAdmin:
-    "Bot guruhda administrator emas yoki mavzu yaratish huquqi yo'q. " +
+  needBotAdmin: "Bot guruhda administrator emas yoki mavzu yaratish huquqi yo'q. " +
     "Botni admin qilib, «Manage topics» huquqini bering.",
 
   submitting: "⏳ <b>Tekshirilmoqda...</b>",
-  submissionManual:
-    "👨‍🏫 <b>Ustoz tekshiradi</b>\n\nAI bu javobni ishonchli baholay olmadi. " +
+  submissionManual: "👨‍🏫 <b>Ustoz tekshiradi</b>\n\nAI bu javobni ishonchli baholay olmadi. " +
     "Natija tez orada shu yerda chiqadi.",
   submissionRejected: "❌ Javob qabul qilinmadi. Iltimos, qaytadan urinib ko'ring.",
   submissionLimit: "Bu vazifa uchun urinishlar soni tugadi. Ustozga murojaat qiling.",
   notYourTask: "Bu vazifa sizga tegishli emas.",
   taskClosed: "Bu vazifa yopilgan.",
   replyToTask: "Javob berish uchun vazifa xabariga <b>reply</b> qiling.",
-  noTasks:
-"Hozircha faol vazifa yo'q. Ustoz vazifa tashlaganda shu yerda ko'rinadi.",
+  noTasks: "Hozircha faol vazifa yo'q. Ustoz vazifa tashlaganda shu yerda ko'rinadi.",
 
-  dailyLimit: "Bugun uchun bot vazifalari limiti tugadi ({{limit}} ta). Ertaga qayta urinib ko'ring.",
-  dailyNoAi:
-    "AI hozircha sozlanmagan, kunlik vazifa yaratib bo'lmaydi. Ustozga murojaat qiling.",
+  dailyLimit:
+    "Bugun uchun bot vazifalari limiti tugadi ({{limit}} ta). Ertaga qayta urinib ko'ring.",
+  dailyNoAi: "AI hozircha sozlanmagan, kunlik vazifa yaratib bo'lmaydi. Ustozga murojaat qiling.",
   dailyGenerating: "🎯 Sizga mashq tayyorlayapman...",
   dailyFailed: "Vazifa yaratishda xatolik bo'ldi. Birozdan so'ng qayta urinib ko'ring.",
-  dailyCreated:
-    "🎯 <b>Kunlik vazifa</b> · #{{id}}\n" +
+  dailyCreated: "🎯 <b>Kunlik vazifa</b> · #{{id}}\n" +
     "To'g'ri bajarsangiz <b>+{{points}} ball</b>.\n\n" +
     "✍️ Javobni shu xabarga <b>reply</b> qilib yuboring.",
   askQuestion: "❓ Savolingizni yozing. AI ustoz imkon qadar qisqa javob beradi.",
@@ -186,11 +169,9 @@ export const T = {
 
   pendingApproval:
     "🆕 <b>Yangi o'quvchi</b>\n\n👤 {{name}}\n🎓 {{group}}\n👨‍🏫 {{teacher}}\n📞 {{phone}}\n🔗 @{{username}}",
-  approvedNotify:
-"✅ {{name}} tasdiqlandi.",
+  approvedNotify: "✅ {{name}} tasdiqlandi.",
   rejectedNotify: "❌ {{name}} rad etildi.",
-  approveError:
-    "⚠️ {{name}} tasdiqlandi, lekin mavzu yaratilmadi: {{error}}\n\n" +
+  approveError: "⚠️ {{name}} tasdiqlandi, lekin mavzu yaratilmadi: {{error}}\n\n" +
     "Guruhda /ulash ni tekshiring yoki mavzuni qo'lda /bogla bilan bog'lang.",
 
   taskGradedForTeacher:
@@ -202,24 +183,29 @@ export const T = {
   gradeNoSubmission: "Topshiriq topilmadi.",
 
   dueSet: "⏰ Muddat belgilandi: {{date}}",
-  dueBad: "Muddat noto'g'ri. Masalan: /muddat 3 yoki /muddat 2026-11-20",
+  dueBad: "Muddat noto'g'ri. Masalan: /muddat 3 kun, /muddat 6 soat yoki /muddat 2026-11-20",
   taskClosedMsg: "🔒 Vazifa yopildi.",
   notTaskReply: "Vazifa xabariga reply qilib yuboring.",
 
-  linked:
-    "✅ <b>Guruh ulandi:</b> {{title}}\n\n" +
+  linked: "✅ <b>Guruh ulandi:</b> {{title}}\n\n" +
     "Bo'limlarni yaratish shart emas — bot ularni o'zi taniydi. Bo'lim turi nomidan taxmin qilinadi " +
     "(Writing, Speaking, Self study → vazifa · Savollar → savollar). To'g'rilash uchun kerakli " +
     "bo'limda /bolim yuboring.",
   topicBound: "✅ Joriy mavzu «{{kind}}» sifatida biriktirildi.",
-  topicTypeAsk:
-    "🧩 <b>Bo'lim sozlamasi</b>\n\nBo'lim: <b>{{name}}</b>\nJoriy tur: {{type}}\n\n" +
+  topicTypeAsk: "🧩 <b>Bo'lim sozlamasi</b>\n\nBo'lim: <b>{{name}}</b>\nJoriy tur: {{type}}\n\n" +
     "Bu bo'limda nima bo'ladi?",
   topicTypeSet: "✅ «{{name}}» bo'limi turi: <b>{{type}}</b>",
   topicTypeBad: "Bo'lim turi noto'g'ri.",
   onlyAdmin: "Bu amal faqat admin uchun.",
-  inviteCreated:
-    "🔗 <b>Ustoz taklif havolasi</b> (2 kun, bir martalik):\n{{link}}\n\n" +
+  adminAddAsk:
+    "👑 Yangi adminning @username yoki Telegram ID sini yuboring (/bekor — bekor qilish):",
+  adminAdded: "✅ {{name}} admin qilindi.",
+  adminYouAre: "Siz bot administratori bo'ldingiz. /panel orqali boshqarasiz.",
+  adminNoUser: "Foydalanuvchi topilmadi. U avval botga /start yuborgan bo'lishi kerak.",
+  adminLeft: "🚪 Adminlikdan chiqdingiz. Hisobingiz ustoz sifatida qoldi.",
+  lastAdminWarn:
+    "Oxirgi admin chiqib keta olmaydi. Avval «👑 Admin qo'shish» orqali boshqa admin qo'shing.",
+  inviteCreated: "🔗 <b>Ustoz taklif havolasi</b> (2 kun, bir martalik):\n{{link}}\n\n" +
     "Havolani ustozga yuboring — u bosganda avtomatik ustoz bo'ladi.",
   inviteInvalid: "Havola yaroqsiz yoki muddati tugagan.",
   inviteUsed: "✅ Siz ustoz sifatida qo'shildingiz. Endi guruhdagi vazifalarni boshqarasiz.",
@@ -241,61 +227,52 @@ export const T = {
   welcomeBack: "Xush kelibsiz, {{name}}! 👋\n\nQuyidagi menyudan foydalaning.",
   codeAsk: "🔑 O'quv kodini yuboring:",
   codeWrong: "❌ Kod noto'g'ri. Ustozdan kodni so'rang yoki tasdiqlashni kuting.",
-  codeOk:
-    "✅ Kod qabul qilindi va hisobingiz faollashtirildi.\n\n" +
+  codeOk: "✅ Kod qabul qilindi va hisobingiz faollashtirildi.\n\n" +
     "Endi guruhdagi bo'limlarga topshiriq tashlashingiz mumkin.",
   codeNotSet: "Markazda o'quv kodi belgilanmagan. Ustoz tasdiqlashini kuting.",
-  studentTopicWelcome:
-    "👋 <b>Xush kelibsiz, {{name}}!</b>\n\n" +
+  studentTopicWelcome: "👋 <b>Xush kelibsiz, {{name}}!</b>\n\n" +
     "Bu — sizning <b>shaxsiy mavzuingiz</b>. Ustoz vazifalarni shu yerga yuboradi.\n\n" +
     "✍️ Javobni vazifa xabariga <b>reply</b> qilib yuboring. Matn, rasm, ovozli xabar, " +
     "video yoki fayl — hammasi qabul qilinadi.\n\n" +
     "🎯 Vazifa: 0.5–10 ball · 📖 Self study: +{{self}} ball · 🤖 Bot vazifasi: +{{bot}} ball",
   topicCreatedStaff: "✅ {{name}} uchun shaxsiy mavzu yaratildi.",
-  topicFailed:
-    "⚠️ {{name}} tasdiqlandi, lekin mavzu yaratilmadi: {{error}}\n\n" +
+  topicFailed: "⚠️ {{name}} tasdiqlandi, lekin mavzu yaratilmadi: {{error}}\n\n" +
     "Bot guruhda admin va «Manage topics» huquqiga ega ekanini tekshiring.",
-  groupRules:
-    "🏁 <b>Ascend Academy</b>\n\n" +
+  groupRules: "🏁 <b>Ascend Academy</b>\n\n" +
     "📝 Ustoz vazifani yo'nalish bo'limiga tashlaydi — javobingizni shu bo'limga yuboring.\n" +
     "👍 Bot qabul qilsa reaksiya qo'yadi; ball va to'g'ri javob shaxsiy chatda.\n" +
     "❓ <b>Savollar</b> bo'limiga savol yozing — ustoz javob beradi.\n\n" +
     "⚠️ Kuniga hech vazifa topshirilmasa: <b>−{{penalty}} ball</b>.",
-  groupNotLinked:
-"Guruh hali botga ulanmagan. Administrator guruhda /ulash buyrug'ini yuborsin.",
-  groupLinkedOnce:
-    "✅ Guruh allaqachon ulangan.\n\n" +
+  groupNotLinked: "Guruh hali botga ulanmagan. Administrator guruhda /ulash buyrug'ini yuborsin.",
+  groupLinkedOnce: "✅ Guruh allaqachon ulangan.\n\n" +
     "Bo'lim turini o'zgartirish uchun kerakli bo'limda /bolim yuboring.",
   needGroup: "Bu buyruq faqat guruhda ishlaydi.",
-  useTopic:
-"Iltimos, javobni ustoz vazifa tashlagan yo'nalish bo'limiga yuboring.",
+  useTopic: "Iltimos, javobni ustoz vazifa tashlagan yo'nalish bo'limiga yuboring.",
 
   // --- vazifalar / topshirish ---
   tasksTitle: "📌 <b>Vazifalarim</b>",
   tasksEmpty: "Hozircha faol vazifa yo'q. Ustoz vazifa yuborganda shu yerda ko'rinadi.",
   taskLine: "{status} <b>#{{id}}</b> · {{kind}} · {{title}}\n   {{points}}",
-  noActiveTask:
-    "Faol vazifa topilmadi. Ustoz vazifa yuborgach, unga reply qilib javob bering.",
+  noActiveTask: "Faol vazifa topilmadi. Ustoz vazifa yuborgach, unga reply qilib javob bering.",
+  noTaskInTopic:
+    "🔓 Bu bo'limda hozircha faol vazifa yo'q. Ustoz vazifa tashlaganda javobni shu bo'limga yuboring.",
   taskExpired: "⏰ Bu vazifaning muddati o'tgan. Ustozga murojaat qiling.",
   attemptsExhausted:
     "Bu vazifa uchun urinishlar tugadi. Javobingiz ustozga qo'lda tekshirishga yuborildi.",
   fileTooLarge:
     "📦 Fayl juda katta (14 MB dan oshmasligi kerak). Iltimos, qisqaroq ovoz yoki kichikroq fayl yuboring.",
-  gradeReceivedTeacher:
-    "✅ <b>{{score}}/10</b> · {{kind}} · #{{id}}",
+  gradeReceivedTeacher: "✅ <b>{{score}}/10</b> · {{kind}} · #{{id}}",
   retryAllowed: "🔁 Qayta topshirishga ruxsat berildi. Yaxshilangan javobni yuboring.",
   taskClosedByStaff: "🔒 Vazifa yopildi: #{{id}}",
   taskDeleted: "🗑 Vazifa o'chirildi: #{{id}}",
-  dueReminder:
-    "⏰ <b>Eslatma:</b> «{{title}}» vazifasiga {{hours}} soat qoldi.\n" +
+  dueReminder: "⏰ <b>Eslatma:</b> «{{title}}» vazifasiga {{hours}} soat qoldi.\n" +
     "Javobni vazifaga reply qilib yuboring.",
-  overdueStaff:
-    "⌛ <b>Muddat o'tdi</b>\n\n👤 {{name}}\n📝 {{title}}\n\nO'quvchi javob yubormadi.",
+  overdueStaff: "⌛ <b>Muddat o'tdi</b>\n\n👤 {{name}}\n📝 {{title}}\n\nO'quvchi javob yubormadi.",
 
   // --- panel ---
   panelTitle: "🛠 <b>Ustoz paneli</b>\n\nKerakli bo'limni tanlang:",
-  panelStats:
-    "📈 <b>Statistika</b>\n\n" +
+  adminPanelTitle: "🛡 <b>Admin paneli</b>\n\nKerakli bo'limni tanlang:",
+  panelStats: "📈 <b>Statistika</b>\n\n" +
     "👥 Faol o'quvchilar: <b>{{students}}</b>\n" +
     "🕓 Tasdiqlash kutayotgan: <b>{{pending}}</b>\n" +
     "⏳ Qo'lda tekshirish navbati: <b>{{queue}}</b>\n" +
@@ -307,30 +284,29 @@ export const T = {
   panelTasksEmpty: "Faol vazifalar yo'q.",
   panelStudents: "🎓 <b>O'quvchilar</b> ({{count}})\n\n{{list}}",
   panelTasks: "📚 <b>Faol vazifalar</b>\n\n{{list}}",
-  panelSettings:
-    "⚙️ <b>Sozlamalar</b>\n\n" +
+  panelSettings: "⚙️ <b>Sozlamalar</b>\n\n" +
     "🔑 O'quv kodi: {{code}}\n" +
     "📖 Self study: <b>+{{self}}</b> ball\n" +
     "🤖 Bot vazifasi: <b>+{{bot}}</b> ball\n" +
     "⚠️ Kunlik jarima: <b>−{{penalty}}</b> ball\n" +
     "⏰ Standart vazifa muddati: <b>{{due}} soat</b>\n" +
     "🎯 Kunlik bot vazifasi: <b>{{limit}}</b> ta\n" +
+    "📉 Jarima chegarasi: <b>{{minpct}}%</b> dan past natija\n" +
+    "🧾 Qo'shimcha vazifa muddati: <b>{{remedial}} soat</b>\n" +
     "🕐 Vaqt mintaqasi: {{tz}}",
   askValue: "Yangi qiymatni yuboring (/bekor — bekor qilish):",
   valueSaved: "✅ Saqlandi.",
   valueBad: "❌ Qiymat noto'g'ri. Qayta yuboring.",
 
   // --- hisobotlar ---
-  dailyReport:
-    "📊 <b>Kunlik hisobot</b> · {{date}}\n\n" +
+  dailyReport: "📊 <b>Kunlik hisobot</b> · {{date}}\n\n" +
     "✅ Topshiriqlar: <b>{{submissions}}</b>\n" +
     "👥 Qatnashgan o'quvchilar: <b>{{active}}/{{total}}</b>\n" +
     "⚠️ Jarima olganlar: <b>{{penalties}}</b>\n\n" +
     "🏆 <b>Kunlik top</b>\n{{top}}",
   weeklyReport: "🏆 <b>Haftalik leaderboard</b>\n\n{{top}}",
   // --- yangi: moslashuvchan bo'limlar, reaksiya, fikr-mulohaza ---
-  topicNewAuto:
-    "🧩 <b>Yangi bo'lim aniqlandi:</b> {{name}}\n" +
+  topicNewAuto: "🧩 <b>Yangi bo'lim aniqlandi:</b> {{name}}\n" +
     "Turi: <b>{{type}}</b>{{track}}\n\n" +
     "Noto'g'ri bo'lsa, quyidagi tugmalar bilan o'zgartiring:",
   topicNewAsk:
@@ -354,9 +330,9 @@ export const T = {
     "📬 <b>Topshirig'ingiz natijasi</b>\n📝 {{task}}\n\n❌ <b>Bajarilmagan.</b> Ball qo'shilmadi.\n💬 {{feedback}}",
   dmManual:
     "📬 <b>Topshirig'ingiz ustozga yuborildi</b>\n📝 {{task}}\n\n👨‍🏫 Ustoz tekshirgach natija shu yerga keladi.",
-  dmTeacherScore:
-    "📬 <b>Ustoz bahosi</b>\n📝 {{task}}\n\n👨‍🏫 <b>{{score}}/10</b>\n💬 {{feedback}}",
-  dmRetry: "🔁 <b>Qayta topshirish mumkin</b>\n📝 {{task}}\n\nYaxshilangan javobingizni bo'limga yuboring.",
+  dmTeacherScore: "📬 <b>Ustoz bahosi</b>\n📝 {{task}}\n\n👨‍🏫 <b>{{score}}/10</b>\n💬 {{feedback}}",
+  dmRetry:
+    "🔁 <b>Qayta topshirish mumkin</b>\n📝 {{task}}\n\nYaxshilangan javobingizni bo'limga yuboring.",
   dmRejected: "❌ <b>Javob qabul qilinmadi</b>\n📝 {{task}}\n\nIltimos, qaytadan urinib ko'ring.",
   dmAnswerKey: "🔑 <b>To'g'ri javob / namuna</b>\n{{key}}",
   dmFileTooLarge:
@@ -385,7 +361,8 @@ export const T = {
     "🎯 kunlik vazifani oling. Fikr yoki taklifingiz bo'lsa — 💬 Fikr bildirish. 4/4",
   obNext: "Keyingi ➡️",
   obDone: "🚀 Boshladik!",
-  weeklyCaption: "🏆 <b>Haftalik reyting</b> · {{range}}\n\nO'z o'rningizni ko'rish uchun botda /reyting ni bosing.",
+  weeklyCaption:
+    "🏆 <b>Haftalik reyting</b> · {{range}}\n\nO'z o'rningizni ko'rish uchun botda /reyting ni bosing.",
   bonusNudge:
     "🌙 <b>Bugun zo'r ishladingiz!</b>\n\nYana mashq qilmoqchimisiz? Botdan qo'shimcha vazifa oling va ball to'plang.",
 } as const;

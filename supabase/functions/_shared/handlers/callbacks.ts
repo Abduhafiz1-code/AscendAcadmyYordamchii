@@ -1,14 +1,9 @@
-import { reply, type AppContext } from "../context.ts";
+import { type AppContext, reply, setState } from "../context.ts";
 import { esc, fmtDateTime, fmtPoints, truncate } from "../logic/format.ts";
 import { renderLeaderboard } from "../logic/leaderboard.ts";
 import { fill, T } from "../texts.ts";
 import { gradeKeyboard, periodKeyboard, topicTypeKeyboard } from "../ui.ts";
-import {
-  approveStudent,
-  chooseTeacher,
-  confirmStudentName,
-  rejectStudent,
-} from "./onboarding.ts";
+import { approveStudent, chooseTeacher, confirmStudentName, rejectStudent } from "./onboarding.ts";
 import { panelSection, startSettingEdit } from "./panel.ts";
 import { applyTeacherGrade, sendToStudent } from "./submissions.ts";
 import { tourStep } from "./tour.ts";
@@ -82,7 +77,11 @@ async function handleGradeAction(ctx: AppContext, parts: string[]): Promise<stri
     });
     await sendToStudent(ctx, submission, T.retryAllowed);
     if (submission.chat_id && submission.message_id) {
-      await ctx.tg.reactSafe(Number(submission.chat_id), Number(submission.message_id), REACTION.think);
+      await ctx.tg.reactSafe(
+        Number(submission.chat_id),
+        Number(submission.message_id),
+        REACTION.think,
+      );
     }
     await editOrSend(ctx, `🔁 #${submission.id} — qayta topshirishga ruxsat berildi.`);
     return "Ruxsat berildi";
@@ -95,7 +94,11 @@ async function handleGradeAction(ctx: AppContext, parts: string[]): Promise<stri
     });
     await sendToStudent(ctx, submission, T.submissionRejected);
     if (submission.chat_id && submission.message_id) {
-      await ctx.tg.reactSafe(Number(submission.chat_id), Number(submission.message_id), REACTION.think);
+      await ctx.tg.reactSafe(
+        Number(submission.chat_id),
+        Number(submission.message_id),
+        REACTION.think,
+      );
     }
     await editOrSend(ctx, `🚫 #${submission.id} — javob rad etildi.`);
     return "Rad etildi";
@@ -108,7 +111,9 @@ async function handleGradeAction(ctx: AppContext, parts: string[]): Promise<stri
     const { points } = await applyTeacherGrade(ctx, submission, score, ctx.sender.id);
     await editOrSend(
       ctx,
-      `✅ <b>#${submission.id}</b> baholandi: <b>${fmtPoints(score)}</b>/10 · +${fmtPoints(points)} ball`,
+      `✅ <b>#${submission.id}</b> baholandi: <b>${fmtPoints(score)}</b>/10 · +${
+        fmtPoints(points)
+      } ball`,
     );
     return fill(T.gradeSaved, { score: fmtPoints(score) });
   } catch (error) {
@@ -132,9 +137,12 @@ async function handleTaskAction(ctx: AppContext, parts: string[]): Promise<strin
   if (!task) return T.notTaskReply;
   const status = action === "del" ? "deleted" : "closed";
   await ctx.db.updateTask(task.id, { status });
-  await editOrSend(ctx, fill(status === "deleted" ? T.taskDeleted : T.taskClosedByStaff, {
-    id: task.id,
-  }));
+  await editOrSend(
+    ctx,
+    fill(status === "deleted" ? T.taskDeleted : T.taskClosedByStaff, {
+      id: task.id,
+    }),
+  );
   return status === "deleted" ? "O'chirildi" : "Yopildi";
 }
 
@@ -183,10 +191,13 @@ export async function handleCallback(ctx: AppContext): Promise<void> {
       // Ustoz tanlagach bot bu bo'limni qayta taxmin qilmaydi (announced = true).
       await ctx.db.updateTopic(topic.id, { type, announced: true });
       toast = "Saqlandi";
-      await editOrSend(ctx, fill(T.topicTypeSet, {
-        name: esc(topic.name ?? `#${topic.thread_id}`),
-        type: topicTypeLabel(type),
-      }));
+      await editOrSend(
+        ctx,
+        fill(T.topicTypeSet, {
+          name: esc(topic.name ?? `#${topic.thread_id}`),
+          type: topicTypeLabel(type),
+        }),
+      );
     } else if (head === "tp") {
       // Bo'limlar ro'yxatidan bo'lim tanlash: tp:<topicId>
       if (!ctx.isTeacher && !ctx.isAdmin) throw new Error(T.onlyStaff);
@@ -200,6 +211,25 @@ export async function handleCallback(ctx: AppContext): Promise<void> {
         }),
         topicTypeKeyboard(topic.id),
       );
+    } else if (head === "aa") {
+      // Admin panelidagi "admin qo'shish" / "adminlikdan chiqish" tugmalari.
+      if (ctx.isGroup) throw new Error(T.onlyPrivate);
+      if (!ctx.isAdmin || !ctx.user) throw new Error(T.onlyAdmin);
+      if (parts[1] === "out") {
+        if (!(await ctx.db.hasOtherAdmin(ctx.user.id))) throw new Error(T.lastAdminWarn);
+        ctx.user = await ctx.db.updateUser(ctx.user.id, {
+          role: ctx.user.role === "admin" ? "teacher" : ctx.user.role,
+          status: "active",
+          admin_opt_out: true,
+        });
+        ctx.isAdmin = false;
+        toast = "Chiqdingiz";
+        await editOrSend(ctx, T.adminLeft);
+      } else if (parts[1] === "add") {
+        await setState(ctx, "admin_add");
+        toast = " ";
+        await editOrSend(ctx, T.adminAddAsk);
+      }
     } else if (head === "th") {
       toast = await chooseTeacher(ctx, parts[1] ?? "");
     } else if (head === "p") {

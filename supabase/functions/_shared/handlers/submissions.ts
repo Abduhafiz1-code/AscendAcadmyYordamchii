@@ -1,6 +1,6 @@
 import { type GradeResult, gradeSubmission } from "../ai.ts";
 import { aiConfig } from "../env.ts";
-import { notifyStaff, type AppContext } from "../context.ts";
+import { type AppContext, notifyStaff } from "../context.ts";
 import { decideGrade } from "../logic/decide.ts";
 import { esc, fmtPoints, truncate } from "../logic/format.ts";
 import { clampScore, pointsKindForTask } from "../logic/points.ts";
@@ -18,6 +18,18 @@ import type { SubmissionRow, TaskRow, TgReplyMarkup, UserRow } from "../types.ts
 
 export const MAX_ATTEMPTS = 5;
 const MAX_TEXT_CHARS = 8000;
+
+/** Jarima chegarasi (foizda): shundan past natija qo'shimcha vazifa beradi. */
+export function penaltyPercent(ctx: AppContext): number {
+  const value = Number(ctx.settings.penalty_min_percent ?? 40);
+  if (!Number.isFinite(value)) return 40;
+  return Math.min(100, Math.max(0, value));
+}
+
+/** Ball 0–10 shkalada: 40% = 4 ball. */
+export function belowThreshold(ctx: AppContext, score: number): boolean {
+  return score * 10 < penaltyPercent(ctx);
+}
 
 type Prepared =
   | { ok: true; text: string; media: { mimeType: string; base64: string }[] }
@@ -48,7 +60,10 @@ async function prepareAnswer(ctx: AppContext, content: ExtractedContent): Promis
 
   const mime = content.mimeType ?? "application/octet-stream";
   try {
-    const fileIds = (content.mediaFileIds?.length ? content.mediaFileIds : [content.fileId]).slice(0, 10);
+    const fileIds = (content.mediaFileIds?.length ? content.mediaFileIds : [content.fileId]).slice(
+      0,
+      10,
+    );
     for (const fileId of fileIds) {
       const bytes = await ctx.tg.downloadFile(fileId);
       if (isPlainTextMime(mime)) {
@@ -103,7 +118,11 @@ export async function dmStudent(
     if (!student.dm_open) await ctx.db.updateUser(student.id, { dm_open: true });
     return true;
   } catch (error) {
-    console.error("o'quvchiga DM yuborilmadi", student.id, error instanceof Error ? error.message : error);
+    console.error(
+      "o'quvchiga DM yuborilmadi",
+      student.id,
+      error instanceof Error ? error.message : error,
+    );
   }
   if (student.dm_open) await ctx.db.updateUser(student.id, { dm_open: false });
 
@@ -182,9 +201,12 @@ async function issueRemedialTask(
   const marker = `[qo'shimcha:${task.id}]`;
   const open = await ctx.db.activeTasksForStudent(student);
   if (open.some((item) => item.prompt.toLowerCase().includes(marker))) return;
-  const prompt = `${marker} Ustoz bergan vazifa to'liq bajarilmadi yoki natija 40% dan past.\n\n` +
+  const percent = penaltyPercent(ctx);
+  const hours = Number(ctx.settings.remedial_due_hours ?? 24) || 24;
+  const prompt =
+    `${marker} Ustoz bergan vazifa to'liq bajarilmadi yoki natija ${percent}% dan past.\n\n` +
     `Qo'shimcha vazifa: <b>${esc(truncate(task.title ?? task.prompt, 300))}</b>\n` +
-    `Vazifani qayta, to'liq bajaring va shu xabarga javob qilib yuboring.`;
+    `Muddat: ${hours} soat. Vazifani qayta, to'liq bajaring va shu xabarga javob qilib yuboring.`;
   const remedial = await ctx.db.createTask({
     kind: "bot",
     prompt: prompt.replace(/<[^>]+>/g, ""),
@@ -193,7 +215,7 @@ async function issueRemedialTask(
     assigned_user_id: student.id,
     points_mode: "fixed",
     fixed_points: ctx.settings.bot_task_points,
-    due_at: new Date(Date.now() + 24 * 3_600_000).toISOString(),
+    due_at: new Date(Date.now() + hours * 3_600_000).toISOString(),
     created_by: task.created_by,
   });
   try {
@@ -220,7 +242,9 @@ export async function forwardToStaff(
     name: esc(student.full_name ?? "O'quvchi"),
     task: esc(truncate(task.title ?? task.prompt, 70)),
   }) + `\n\n📌 Sabab: ${reason}\n🆔 Topshiriq #${submission.id}` +
-    (ai ? `\n🤖 AI taklifi: <b>${fmtPoints(ai.score)}</b>/10 (${Math.round(ai.confidence * 100)}%)` : "");
+    (ai
+      ? `\n🤖 AI taklifi: <b>${fmtPoints(ai.score)}</b>/10 (${Math.round(ai.confidence * 100)}%)`
+      : "");
 
   const targets: { chatId: number; threadId?: number }[] = [];
   if (groupId && threadId) {
@@ -237,7 +261,12 @@ export async function forwardToStaff(
         const albumIds = submission.media_message_ids ?? [];
         if (albumIds.length > 1) {
           try {
-            await ctx.tg.copyMessages(target.chatId, Number(submission.chat_id), albumIds, target.threadId);
+            await ctx.tg.copyMessages(
+              target.chatId,
+              Number(submission.chat_id),
+              albumIds,
+              target.threadId,
+            );
           } catch (error) {
             console.error("albom ustozga uzatilmadi, birinchi rasm nusxalanadi", error);
             await ctx.tg.copyMessage(
@@ -317,6 +346,13 @@ export async function handleSubmission(
     return;
   }
 
+  // Muddat o'tgan bo'lsa javob qabul qilinmaydi (ustoz /muddat 3 kun bilan uzaytiradi).
+  if (task.due_at && new Date(task.due_at).getTime() < Date.now()) {
+    await react(REACTION.think);
+    await dmStudent(ctx, student, T.taskExpired, { nudgeIn });
+    return;
+  }
+
   const attempts = await ctx.db.attemptsFor(task.id, student.id);
   const alreadyScored = (await ctx.db.scoredTaskIds(student.id, [task.id])).has(task.id);
   if (!alreadyScored && attempts >= MAX_ATTEMPTS) {
@@ -349,7 +385,13 @@ export async function handleSubmission(
   await react(REACTION.seen);
 
   if (options.forceManual) {
-    await markManual(ctx, submission, task, student, options.forceManualReason ?? "Qo'lda tekshirish so'ralgan");
+    await markManual(
+      ctx,
+      submission,
+      task,
+      student,
+      options.forceManualReason ?? "Qo'lda tekshirish so'ralgan",
+    );
     return;
   }
 
@@ -399,12 +441,19 @@ export async function handleSubmission(
     fixedPoints: task.fixed_points,
   });
 
-  if (result.score < 4 || !result.done) {
+  if (!result.done || belowThreshold(ctx, result.score)) {
     await issueRemedialTask(ctx, task, student);
   }
 
   if (decision.type === "manual") {
-    await markManual(ctx, submission, task, student, "AI ishonchi past — ustoz tasdiqlasin", result);
+    await markManual(
+      ctx,
+      submission,
+      task,
+      student,
+      "AI ishonchi past — ustoz tasdiqlasin",
+      result,
+    );
     return;
   }
 
@@ -446,7 +495,10 @@ export async function handleSubmission(
   text += answerKeyBlock(task);
 
   const showBonus = ctx.settings.ai_enabled && task.kind !== "bot";
-  await dmStudent(ctx, student, text, { markup: showBonus ? bonusTaskKeyboard() : undefined, nudgeIn });
+  await dmStudent(ctx, student, text, {
+    markup: showBonus ? bonusTaskKeyboard() : undefined,
+    nudgeIn,
+  });
 
   // Guruhda faqat reaksiya.
   if (decision.type === "fixed" && !decision.awarded) await react(REACTION.think);
@@ -531,14 +583,18 @@ export async function applyTeacherGrade(
     ctx.settings.ai_enabled && task.kind !== "bot" ? bonusTaskKeyboard() : undefined,
   );
 
-  if (normalized < 4) {
+  if (belowThreshold(ctx, normalized)) {
     const student = await ctx.db.userById(submission.user_id);
     if (student) await issueRemedialTask(ctx, task, student);
   }
 
   // Guruhdagi topshiriq xabariga natija reaksiyasi.
   if (submission.chat_id && submission.message_id) {
-    await ctx.tg.reactSafe(Number(submission.chat_id), Number(submission.message_id), reactionForScore(normalized));
+    await ctx.tg.reactSafe(
+      Number(submission.chat_id),
+      Number(submission.message_id),
+      reactionForScore(normalized),
+    );
   }
 
   return { points };
