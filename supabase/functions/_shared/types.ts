@@ -39,6 +39,9 @@ export interface TgMessage {
   reply_to_message?: TgMessage;
   contact?: { phone_number: string; user_id?: number; first_name: string };
   photo?: TgFile[];
+  media_group_id?: string;
+  media_group_file_ids?: string[];
+  media_group_message_ids?: number[];
   voice?: TgFile;
   audio?: TgFile;
   video?: TgFile;
@@ -171,6 +174,8 @@ export interface SubmissionRow {
   content_type: string;
   text_content: string | null;
   file_id: string | null;
+  media_file_ids?: string[];
+  media_message_ids?: number[];
   file_name: string | null;
   status: SubmissionStatus;
   ai_score: number | null;

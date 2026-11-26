@@ -15,6 +15,7 @@ import type {
   TopicType,
   UserRow,
   UserStatus,
+  TgMessage,
 } from "./types.ts";
 
 interface ResultLike<T> {
@@ -102,6 +103,8 @@ export interface CreateSubmissionInput {
   content_type: string;
   text_content?: string | null;
   file_id?: string | null;
+  media_file_ids?: string[];
+  media_message_ids?: number[];
   file_name?: string | null;
 }
 
@@ -150,6 +153,32 @@ export class Db {
       .update({ ...patch, updated_at: new Date().toISOString() })
       .eq("id", true);
     if (error) throw new Error(`app_settings update: ${error.message}`);
+  }
+
+  async addMediaGroupMessage(message: TgMessage): Promise<void> {
+    const mediaGroupId = message.media_group_id;
+    if (!mediaGroupId) return;
+    const expired = new Date(Date.now() - 14 * 86_400_000).toISOString();
+    const cleanup = await this.client.from("telegram_media_group_items").delete().lt("created_at", expired);
+    if (cleanup.error) throw new Error(`media group cleanup: ${cleanup.error.message}`);
+    const { error } = await this.client.from("telegram_media_group_items").upsert({
+      chat_id: message.chat.id,
+      media_group_id: mediaGroupId,
+      message_id: message.message_id,
+      payload: message,
+    }, { onConflict: "chat_id,media_group_id,message_id", ignoreDuplicates: true });
+    if (error) throw new Error(`media group insert: ${error.message}`);
+  }
+
+  /** Albom xabarlarining hammasini bitta workerga atomar tarzda topshiradi. */
+  async claimMediaGroup(chatId: number, mediaGroupId: string): Promise<TgMessage[]> {
+    const { data, error } = await this.client.from("telegram_media_group_items")
+      .update({ claimed_at: new Date().toISOString() })
+      .eq("chat_id", chatId).eq("media_group_id", mediaGroupId).is("claimed_at", null)
+      .select("payload");
+    if (error) throw new Error(`media group claim: ${error.message}`);
+    return (data ?? []).map((row: { payload: TgMessage }) => row.payload)
+      .sort((a, b) => a.message_id - b.message_id);
   }
 
   // --------------------------------------------------------------------- users

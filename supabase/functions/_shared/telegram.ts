@@ -232,6 +232,20 @@ export class TelegramApi {
     return res.message_id;
   }
 
+  async copyMessages(
+    toChatId: number,
+    fromChatId: number,
+    messageIds: number[],
+    threadId?: number | null,
+  ): Promise<void> {
+    await this.call("copyMessages", {
+      chat_id: toChatId,
+      from_chat_id: fromChatId,
+      message_ids: messageIds,
+      message_thread_id: threadId ?? undefined,
+    });
+  }
+
   async createForumTopic(chatId: number, name: string): Promise<number> {
     const res = await this.call<{ message_thread_id: number }>("createForumTopic", {
       chat_id: chatId,
@@ -321,12 +335,14 @@ export interface ExtractedContent {
   fileName: string | null;
   mimeType: string | null;
   fileSize: number | null;
+  mediaFileIds?: string[];
 }
 
 export function extractContent(message: {
   text?: string;
   caption?: string;
   photo?: { file_id: string; file_size?: number }[];
+  media_group_file_ids?: string[];
   voice?: { file_id: string; mime_type?: string; file_size?: number };
   audio?: { file_id: string; mime_type?: string; file_name?: string; file_size?: number };
   video?: { file_id: string; mime_type?: string; file_name?: string; file_size?: number };
@@ -341,6 +357,7 @@ export function extractContent(message: {
       contentType: "photo",
       text,
       fileId: largest.file_id,
+      mediaFileIds: message.media_group_file_ids ?? [largest.file_id],
       fileName: null,
       mimeType: "image/jpeg",
       fileSize: largest.file_size ?? null,

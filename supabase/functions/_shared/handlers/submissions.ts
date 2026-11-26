@@ -48,14 +48,17 @@ async function prepareAnswer(ctx: AppContext, content: ExtractedContent): Promis
 
   const mime = content.mimeType ?? "application/octet-stream";
   try {
-    const bytes = await ctx.tg.downloadFile(content.fileId);
-    if (isPlainTextMime(mime)) {
-      const decoded = new TextDecoder().decode(bytes).slice(0, MAX_TEXT_CHARS);
-      text = `${text}\n\n${decoded}`.trim();
-    } else if (canSendInline(mime)) {
-      media.push({ mimeType: mime, base64: toBase64(bytes) });
-    } else {
-      return { ok: false, reason: "unsupported" };
+    const fileIds = (content.mediaFileIds?.length ? content.mediaFileIds : [content.fileId]).slice(0, 10);
+    for (const fileId of fileIds) {
+      const bytes = await ctx.tg.downloadFile(fileId);
+      if (isPlainTextMime(mime)) {
+        const decoded = new TextDecoder().decode(bytes).slice(0, MAX_TEXT_CHARS);
+        text = `${text}\n\n${decoded}`.trim();
+      } else if (canSendInline(mime)) {
+        media.push({ mimeType: mime, base64: toBase64(bytes) });
+      } else {
+        return { ok: false, reason: "unsupported" };
+      }
     }
   } catch (error) {
     if (error instanceof MediaTooLargeError) return { ok: false, reason: "too_large" };
@@ -231,12 +234,27 @@ export async function forwardToStaff(
   for (const target of targets) {
     try {
       if (submission.chat_id && submission.message_id) {
-        await ctx.tg.copyMessage(
-          target.chatId,
-          Number(submission.chat_id),
-          Number(submission.message_id),
-          target.threadId,
-        );
+        const albumIds = submission.media_message_ids ?? [];
+        if (albumIds.length > 1) {
+          try {
+            await ctx.tg.copyMessages(target.chatId, Number(submission.chat_id), albumIds, target.threadId);
+          } catch (error) {
+            console.error("albom ustozga uzatilmadi, birinchi rasm nusxalanadi", error);
+            await ctx.tg.copyMessage(
+              target.chatId,
+              Number(submission.chat_id),
+              Number(submission.message_id),
+              target.threadId,
+            );
+          }
+        } else {
+          await ctx.tg.copyMessage(
+            target.chatId,
+            Number(submission.chat_id),
+            Number(submission.message_id),
+            target.threadId,
+          );
+        }
       }
       await ctx.tg.sendMessage(target.chatId, header, {
         threadId: target.threadId,
@@ -318,6 +336,8 @@ export async function handleSubmission(
       content_type: content.contentType,
       text_content: content.text || null,
       file_id: content.fileId,
+      media_file_ids: content.mediaFileIds ?? (content.fileId ? [content.fileId] : []),
+      media_message_ids: message.media_group_message_ids ?? [message.message_id],
       file_name: content.fileName,
     });
   } catch (error) {

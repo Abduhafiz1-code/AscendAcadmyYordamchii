@@ -445,17 +445,14 @@ async function maybeAnswerInQuestions(ctx: AppContext): Promise<void> {
 }
 
 /**
- * Suhbat xabari topshiriq emasligini aniqlaydi: qisqa matn yoki boshqa odamga javob.
- * Media (ovoz, rasm, video, fayl) har doim topshiriq hisoblanadi.
+ * Oddiy salomlashuv va tasdiqlarni vazifa javobi deb olmaydi; boshqa matn/media ochiq vazifaga bog'lanadi.
  */
-function isChatterNotSubmission(ctx: AppContext, content: ExtractedContent | null, repliedTask: boolean): boolean {
+function isChatterNotSubmission(content: ExtractedContent | null, repliedTask: boolean): boolean {
   if (!content) return true;
   if (repliedTask) return false;
   if (hasMedia(content)) return false;
-  const replyTo = ctx.message?.reply_to_message;
-  const replyingToTopicStart = Boolean(replyTo?.forum_topic_created);
-  if (replyTo && !replyingToTopicStart) return true;
-  return content.text.trim().length < 15;
+  const text = content.text.trim().toLowerCase().replace(/[!.?]+$/g, "");
+  return /^(?:ok(?:ay)?|rahmat|tashakkur|thanks?|salom|assalomu alaykum|yaxshi|mayli|tushunarli|👍|✅)$/.test(text);
 }
 
 function mentionedTrack(text: string): string | null {
@@ -481,22 +478,23 @@ async function chooseAnswerTask(
     const personal = candidates.find((task) => task.kind === "personal" && task.assigned_user_id === route.userId);
     if (personal) return personal;
   }
-  const inThread = candidates.find((task) => task.thread_id !== null && Number(task.thread_id) === Number(ctx.threadId));
-  if (inThread) return inThread;
-
   const wantedTrack = mentionedTrack(content.text) ??
     (route.type === "tasks" ? route.track : route.type === "self_study" ? "self_study" : null);
   if (wantedTrack) {
-    const withTopic = await Promise.all(candidates.map(async (task) => ({
+    const topics = await ctx.db.topicsOfChat(ctx.chatId);
+    const topicsByThread = new Map(topics.map((topic) => [Number(topic.thread_id), topic]));
+    const withTopic = candidates.map((task) => ({
       task,
-      topic: task.thread_id === null ? null : await ctx.db.topicByThread(ctx.chatId, Number(task.thread_id)),
-    })));
+      topic: task.thread_id === null ? null : topicsByThread.get(Number(task.thread_id)) ?? null,
+    }));
     const match = withTopic.find(({ task, topic }) =>
       task.kind === wantedTrack || topic?.track === wantedTrack ||
       (topic?.name ? mentionedTrack(topic.name) === wantedTrack : false)
     );
     if (match) return match.task;
   }
+  const inThread = candidates.find((task) => task.thread_id !== null && Number(task.thread_id) === Number(ctx.threadId));
+  if (inThread) return inThread;
   return candidates[0] ?? null;
 }
 
@@ -520,9 +518,9 @@ async function routeGroupMessage(
   }
   // Boshqa bo'limlarda (General, ustozlar, noma'lum) bot jim turadi — spam yo'q.
   if (route.type === "staff" && !repliedTask) return;
-  if (route.type === "ignored" && !repliedTask) {
+  if (route.type === "ignored" && !repliedTask && (!topic || topic.announced) && topic?.thread_id !== 0) {
     // Noma'lum bo'limga o'quvchi fayl tashlasa — ustozdan bir marta so'raymiz.
-    if (topic && !ctx.isTeacher && content && !isChatterNotSubmission(ctx, content, false)) {
+    if (topic && !ctx.isTeacher && content && !isChatterNotSubmission(content, false)) {
       await askTopicTypeOnce(ctx, topic);
     }
     if (!topic || topic.announced) return;
@@ -543,7 +541,7 @@ async function routeGroupMessage(
   }
 
   // --- O'quvchi: ro'yxatdan o'tmagan bo'lsa ham ID, nik va ism avtomatik saqlanadi ---
-  if (isChatterNotSubmission(ctx, content, Boolean(repliedTask))) return;
+  if (isChatterNotSubmission(content, Boolean(repliedTask))) return;
   const sender = await ensureUser(ctx);
   if (sender.role !== "student" || sender.status !== "active") return; // bloklangan / rad etilgan
 
@@ -552,6 +550,9 @@ async function routeGroupMessage(
   const candidates = await ctx.db.answerableTasksInChat(sender.id, ctx.chatId);
   const task = repliedTask ?? (content ? await chooseAnswerTask(ctx, candidates, route, content) : null);
   if (!task) {
+    if (route.type === "ignored" && topic && !topic.announced && !ctx.isTeacher) {
+      await askTopicTypeOnce(ctx, topic);
+    }
     // Bu bo'limda hali vazifa yo'q: jim, faqat 🤷 reaksiya.
     await ctx.tg.reactSafe(ctx.chatId, message.message_id, REACTION.nothing);
     return;
@@ -562,6 +563,35 @@ async function routeGroupMessage(
   }
   if ((task.kind === "personal" || task.kind === "bot") && task.assigned_user_id !== sender.id) return;
   await handleSubmission(ctx, task, sender);
+}
+
+/** Telegram albomidagi suratlar alohida update bo'lib keladi; ularni bitta javob sifatida yig'adi. */
+async function collectPhotoAlbum(ctx: AppContext): Promise<boolean> {
+  const message = ctx.message;
+  if (!message?.media_group_id || !message.photo?.length) return false;
+  await ctx.db.addMediaGroupMessage(message);
+  await new Promise((resolve) => setTimeout(resolve, 2_200));
+  const members = await ctx.db.claimMediaGroup(ctx.chatId, message.media_group_id);
+  if (members.length === 0) return true;
+
+  const photos = members.flatMap((item) => {
+    const photo = item.photo?.[item.photo.length - 1];
+    return photo ? [photo] : [];
+  });
+  if (photos.length === 0) return true;
+  const primary = members[0];
+  const caption = members.find((item) => item.caption)?.caption;
+  const merged = {
+    ...primary,
+    photo: photos,
+    media_group_file_ids: photos.map((photo) => photo.file_id),
+    media_group_message_ids: members.map((item) => item.message_id),
+    ...(caption ? { caption } : {}),
+  };
+  ctx.message = merged;
+  ctx.update.message = merged;
+  ctx.threadId = merged.message_thread_id ?? ctx.threadId;
+  return false;
 }
 
 export async function handleGroup(ctx: AppContext): Promise<void> {
@@ -579,6 +609,8 @@ export async function handleGroup(ctx: AppContext): Promise<void> {
     if (isCommand(text, "/start")) await reply(ctx, T.groupNotLinked);
     return;
   }
+
+  if (await collectPhotoAlbum(ctx)) return;
 
   if (ctx.message?.forum_topic_created || ctx.message?.forum_topic_edited) {
     await trackTopic(ctx);
