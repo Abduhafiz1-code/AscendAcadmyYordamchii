@@ -15,7 +15,7 @@ const STATUS_ICON: Record<string, string> = {
 };
 
 export async function renderResults(ctx: AppContext, user: UserRow): Promise<string> {
-  const rows = await ctx.db.leaderboard(null);
+  const rows = await ctx.db.leaderboard(null, user.group_name);
   const mine = rows.find((row) => Number(row.tg_id) === Number(user.tg_id));
   const submissions = await ctx.db.userSubmissions(user.id, 6);
   const lines = [T.myResultsTitle, ""];
@@ -117,9 +117,10 @@ export async function panelSection(
   }
 
   if (section === "students") {
-    const students = await ctx.db.activeStudents();
+    const rosterGroup = ctx.settings.group_title ?? ctx.user?.group_name ?? null;
+    const students = await ctx.db.activeStudents(rosterGroup);
     if (students.length === 0) return { text: T.panelStudentsEmpty, markup: panelKeyboard() };
-    const rows = await ctx.db.leaderboard(null);
+    const rows = await ctx.db.leaderboard(null, rosterGroup);
     const byId = new Map(rows.map((row) => [Number(row.user_id), row]));
     const lines = [fill(T.panelStudents, {
       count: students.length,
@@ -172,7 +173,7 @@ export async function panelSection(
 
   if (section === "stats") {
     const [students, pending, queue, tasks, todaySubmissions] = await Promise.all([
-      ctx.db.activeStudents(),
+      ctx.db.activeStudents(ctx.settings.group_title ?? ctx.user?.group_name ?? null),
       ctx.db.pendingUsers(),
       ctx.db.manualQueue(50),
       ctx.db.activeTaskCount(),
@@ -198,6 +199,7 @@ export async function panelSection(
         self: fmtPoints(settings.self_study_points),
         bot: fmtPoints(settings.bot_task_points),
         penalty: fmtPoints(settings.daily_penalty),
+        due: settings.default_due_hours,
         limit: settings.bot_tasks_per_day,
         tz: esc(settings.tz),
       }),
@@ -234,6 +236,13 @@ const SETTING_FIELDS: Record<string, { label: string; parse: (raw: string) => nu
       return Number.isFinite(value) && value >= 0 && value <= 50 ? value : null;
     },
   },
+  due: {
+    label: "Standart vazifa muddati (soat)",
+    parse: (raw) => {
+      const value = Number(raw);
+      return Number.isInteger(value) && value >= 1 && value <= 720 ? value : null;
+    },
+  },
   limit: {
     label: "Kunlik bot vazifalari",
     parse: (raw) => {
@@ -268,6 +277,7 @@ export async function saveSettingValue(ctx: AppContext, raw: string): Promise<vo
     self: "self_study_points",
     bot: "bot_task_points",
     penalty: "daily_penalty",
+    due: "default_due_hours",
     limit: "bot_tasks_per_day",
   };
   const patch: Record<string, unknown> = { [map[field]]: value };

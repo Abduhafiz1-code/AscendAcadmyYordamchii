@@ -313,6 +313,7 @@ export const T = {
     "📖 Self study: <b>+{{self}}</b> ball\n" +
     "🤖 Bot vazifasi: <b>+{{bot}}</b> ball\n" +
     "⚠️ Kunlik jarima: <b>−{{penalty}}</b> ball\n" +
+    "⏰ Standart vazifa muddati: <b>{{due}} soat</b>\n" +
     "🎯 Kunlik bot vazifasi: <b>{{limit}}</b> ta\n" +
     "🕐 Vaqt mintaqasi: {{tz}}",
   askValue: "Yangi qiymatni yuboring (/bekor — bekor qilish):",

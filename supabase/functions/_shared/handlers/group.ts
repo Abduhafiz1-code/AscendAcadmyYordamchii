@@ -3,7 +3,7 @@ import { onboardingSlide } from "../assets/onboarding.ts";
 import { classifyTopicName, routeThread, topicTypeLabel, trackLabel } from "../logic/routing.ts";
 import { sendLeaderboardCard } from "../logic/leaderboardCard.ts";
 import { startOfWeek } from "../logic/period.ts";
-import { parseDue, splitAnswerKey } from "../logic/taskParse.ts";
+import { extractDue, parseDue, splitAnswerKey } from "../logic/taskParse.ts";
 import { esc, fmtDateTime, truncate } from "../logic/format.ts";
 import { fill, T } from "../texts.ts";
 import { startBotKeyboard, taskKeyboard, topicTypeKeyboard } from "../ui.ts";
@@ -15,7 +15,7 @@ import {
   type ExtractedContent,
 } from "../telegram.ts";
 import { ensureUser } from "./onboarding.ts";
-import type { SettingsRow, TaskKind, TopicRow, UserRow } from "../types.ts";
+import type { SettingsRow, TaskKind, TaskRow, TopicRow, UserRow } from "../types.ts";
 import { applyTeacherGrade, handleSubmission } from "./submissions.ts";
 import { answerQuestion } from "./aiTutor.ts";
 
@@ -163,12 +163,14 @@ export async function createTaskFromContent(
   // Qisqa suhbat xabarlari ("ok", "yaxshi") vazifa emas.
   if (!content.fileId && raw.length < MIN_TASK_TEXT) return;
 
-  const { prompt, answerKey } = splitAnswerKey(raw || content.fileName || "Fayl topshirig'i");
-  const dueHours = options.dueHours ?? DEFAULT_DUE_HOURS[kind];
+  const parsedDue = extractDue(raw);
+  const { prompt, answerKey } = splitAnswerKey(parsedDue.text || raw || content.fileName || "Fayl topshirig'i");
+  const dueHours = options.dueHours ?? ctx.settings.default_due_hours ?? DEFAULT_DUE_HOURS[kind];
   const title = truncate(prompt || content.fileName || "Fayl topshirig'i", 60);
 
+  let createdTask: { id: number };
   try {
-    await ctx.db.createTask({
+    createdTask = await ctx.db.createTask({
       kind,
       prompt: prompt || "(fayl topshirig'i)",
       title,
@@ -185,12 +187,18 @@ export async function createTaskFromContent(
         : null,
       attachment_file_id: content.fileId,
       attachment_type: content.mimeType,
-      due_at: new Date(Date.now() + dueHours * 3_600_000).toISOString(),
+      due_at: (parsedDue.due ?? new Date(Date.now() + dueHours * 3_600_000)).toISOString(),
       created_by: ctx.user?.id ?? null,
     });
   } catch (error) {
     console.error("vazifa saqlanmadi", error);
     return;
+  }
+  if (!parsedDue.due) {
+    await notifyStaff(
+      ctx,
+      `⏰ Vazifa #${createdTask.id} uchun muddat matnda topilmadi. Ustoz, vazifa xabariga reply qilib /muddat 3 yoki /muddat 2026-12-01 yuboring. Hozircha standart muddat: ${dueHours} soat.`,
+    );
   }
   // Guruhga xabar yozmaymiz — faqat 👌 reaksiya: bot vazifani qabul qildi.
   await ctx.tg.reactSafe(ctx.chatId, message.message_id, REACTION.taskPosted);
@@ -440,13 +448,56 @@ async function maybeAnswerInQuestions(ctx: AppContext): Promise<void> {
  * Suhbat xabari topshiriq emasligini aniqlaydi: qisqa matn yoki boshqa odamga javob.
  * Media (ovoz, rasm, video, fayl) har doim topshiriq hisoblanadi.
  */
-function isChatterNotSubmission(ctx: AppContext, content: ExtractedContent | null): boolean {
+function isChatterNotSubmission(ctx: AppContext, content: ExtractedContent | null, repliedTask: boolean): boolean {
   if (!content) return true;
+  if (repliedTask) return false;
   if (hasMedia(content)) return false;
   const replyTo = ctx.message?.reply_to_message;
   const replyingToTopicStart = Boolean(replyTo?.forum_topic_created);
   if (replyTo && !replyingToTopicStart) return true;
   return content.text.trim().length < 15;
+}
+
+function mentionedTrack(text: string): string | null {
+  const value = text.toLowerCase();
+  const tracks: [RegExp, string][] = [
+    [/\bspeaking\b|\bspeak\b|gapirish/, "speaking"],
+    [/\blistening\b|\blisten\b|tinglash/, "listening"],
+    [/\bwriting\b|\bwrite\b|yozish/, "writing"],
+    [/\breading\b|\bread\b|o'qish/, "reading"],
+    [/\bgrammar\b|grammatika/, "grammar"],
+    [/\bvocabulary\b|\bvocab\b|lug'at/, "vocabulary"],
+  ];
+  return tracks.find(([pattern]) => pattern.test(value))?.[1] ?? null;
+}
+
+async function chooseAnswerTask(
+  ctx: AppContext,
+  candidates: TaskRow[],
+  route: ReturnType<typeof routeThread>,
+  content: ExtractedContent,
+): Promise<TaskRow | null> {
+  if (route.type === "student") {
+    const personal = candidates.find((task) => task.kind === "personal" && task.assigned_user_id === route.userId);
+    if (personal) return personal;
+  }
+  const inThread = candidates.find((task) => task.thread_id !== null && Number(task.thread_id) === Number(ctx.threadId));
+  if (inThread) return inThread;
+
+  const wantedTrack = mentionedTrack(content.text) ??
+    (route.type === "tasks" ? route.track : route.type === "self_study" ? "self_study" : null);
+  if (wantedTrack) {
+    const withTopic = await Promise.all(candidates.map(async (task) => ({
+      task,
+      topic: task.thread_id === null ? null : await ctx.db.topicByThread(ctx.chatId, Number(task.thread_id)),
+    })));
+    const match = withTopic.find(({ task, topic }) =>
+      task.kind === wantedTrack || topic?.track === wantedTrack ||
+      (topic?.name ? mentionedTrack(topic.name) === wantedTrack : false)
+    );
+    if (match) return match.task;
+  }
+  return candidates[0] ?? null;
 }
 
 async function routeGroupMessage(
@@ -457,18 +508,24 @@ async function routeGroupMessage(
   const message = ctx.message;
   if (!message) return;
   const student = route.type === "student" ? await ctx.db.userById(route.userId) : null;
+  const content = extractContent(message);
+  const replyTo = message.reply_to_message;
+  const repliedTask = replyTo && !replyTo.forum_topic_created
+    ? await ctx.db.taskByMessage(ctx.chatId, replyTo.message_id)
+    : null;
 
-  if (route.type === "questions") {
+  if (route.type === "questions" && !repliedTask) {
     await maybeAnswerInQuestions(ctx);
     return;
   }
   // Boshqa bo'limlarda (General, ustozlar, noma'lum) bot jim turadi — spam yo'q.
-  if (route.type === "staff" || route.type === "group_root" || route.type === "unknown_topic") return;
-  if (route.type === "ignored") {
+  if (route.type === "staff" && !repliedTask) return;
+  if (route.type === "ignored" && !repliedTask) {
     // Noma'lum bo'limga o'quvchi fayl tashlasa — ustozdan bir marta so'raymiz.
-    const content = extractContent(message);
-    if (topic && !ctx.isTeacher && hasMedia(content)) await askTopicTypeOnce(ctx, topic);
-    return;
+    if (topic && !ctx.isTeacher && content && !isChatterNotSubmission(ctx, content, false)) {
+      await askTopicTypeOnce(ctx, topic);
+    }
+    if (!topic || topic.announced) return;
   }
 
   const kind: TaskKind = route.type === "self_study"
@@ -477,28 +534,23 @@ async function routeGroupMessage(
     ? "personal"
     : "class";
 
-  const content = extractContent(message);
-
   // --- Ustoz: oddiy xabar = kunlik vazifa ---
   if (ctx.isTeacher) {
+    if (route.type === "group_root" || route.type === "unknown_topic" || route.type === "questions") return;
     if (!content) return;
     await createTaskFromContent(ctx, kind, content, { assignedUserId: student?.id ?? null });
     return;
   }
 
   // --- O'quvchi: ro'yxatdan o'tmagan bo'lsa ham ID, nik va ism avtomatik saqlanadi ---
-  if (isChatterNotSubmission(ctx, content)) return;
+  if (isChatterNotSubmission(ctx, content, Boolean(repliedTask))) return;
   const sender = await ensureUser(ctx);
   if (sender.role !== "student" || sender.status !== "active") return; // bloklangan / rad etilgan
 
   if (route.type === "student" && student && student.id !== sender.id) return;
 
-  const replyTo = message.reply_to_message;
-  let task = replyTo && !replyTo.forum_topic_created
-    ? await ctx.db.taskByMessage(ctx.chatId, replyTo.message_id)
-    : null;
-  if (!task && route.type === "student") task = await ctx.db.answerableTask(sender.id, ["personal"]);
-  if (!task) task = await ctx.db.latestTaskInThread(ctx.chatId, ctx.threadId);
+  const candidates = await ctx.db.answerableTasksInChat(sender.id, ctx.chatId);
+  const task = repliedTask ?? (content ? await chooseAnswerTask(ctx, candidates, route, content) : null);
   if (!task) {
     // Bu bo'limda hali vazifa yo'q: jim, faqat 🤷 reaksiya.
     await ctx.tg.reactSafe(ctx.chatId, message.message_id, REACTION.nothing);
@@ -508,7 +560,7 @@ async function routeGroupMessage(
     await ctx.tg.reactSafe(ctx.chatId, message.message_id, REACTION.think);
     return;
   }
-  if (task.kind === "personal" && task.assigned_user_id !== sender.id) return;
+  if ((task.kind === "personal" || task.kind === "bot") && task.assigned_user_id !== sender.id) return;
   await handleSubmission(ctx, task, sender);
 }
 
@@ -558,12 +610,25 @@ export async function handleGroup(ctx: AppContext): Promise<void> {
   if (isCommand(text, "/reyting") || isCommand(text, "/leaderboard") || isCommand(text, "/hafta")) {
     const weekly = isCommand(text, "/hafta");
     const since = weekly ? startOfWeek(new Date(), ctx.settings.tz) : null;
-    const rows = await ctx.db.leaderboard(since, null);
+    const rows = await ctx.db.leaderboard(since, ctx.message?.chat.title ?? settings.group_title);
     await sendLeaderboardCard(ctx.tg, ctx.chatId, rows, {
       period: weekly ? "week" : "all",
       threadId: ctx.threadId,
       replyTo: ctx.message?.message_id,
       meTgId: ctx.sender.id,
+    });
+    return;
+  }
+  if (isCommand(text, "/oquvchilar")) {
+    if (!ctx.isTeacher && !ctx.isAdmin) {
+      await reply(ctx, T.onlyStaff);
+      return;
+    }
+    const rows = await ctx.db.leaderboard(null, ctx.message?.chat.title ?? settings.group_title);
+    await sendLeaderboardCard(ctx.tg, ctx.chatId, rows, {
+      period: "all",
+      threadId: ctx.threadId,
+      replyTo: ctx.message?.message_id,
     });
     return;
   }
@@ -581,6 +646,20 @@ export async function handleGroup(ctx: AppContext): Promise<void> {
   }
   if (isCommand(text, "/muddat")) {
     await setDueDate(ctx, commandArgs(text, "/muddat"));
+    return;
+  }
+  if (isCommand(text, "/vazifa")) {
+    if (!ctx.isTeacher && !ctx.isAdmin) {
+      await reply(ctx, T.onlyStaff);
+      return;
+    }
+    const content = extractContent(ctx.message!);
+    const prompt = commandArgs(text, "/vazifa");
+    if (!content || prompt.trim().length < MIN_TASK_TEXT) {
+      await reply(ctx, "Vazifa matnini buyruqdan keyin yozing. Masalan: /vazifa 5 ta gap yozing, muddat: 3 kun");
+      return;
+    }
+    await createTaskFromContent(ctx, "class", { ...content, text: prompt });
     return;
   }
   if (isCommand(text, "/yopish")) {

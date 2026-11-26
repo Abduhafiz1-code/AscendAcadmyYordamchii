@@ -53,7 +53,8 @@ export async function buildContext(
   const isTeacher = Boolean(
     user && (user.role === "admin" || user.role === "teacher") && user.status === "active",
   );
-  const isAdmin = Boolean(user?.role === "admin") || adminTgIds().includes(sender.id);
+  const isAdmin = Boolean(user?.role === "admin") ||
+    (adminTgIds().includes(sender.id) && user?.admin_opt_out !== true);
 
   return {
     tg,

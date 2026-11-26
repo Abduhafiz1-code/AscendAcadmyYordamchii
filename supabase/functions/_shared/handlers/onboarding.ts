@@ -48,7 +48,7 @@ export async function ensureUser(ctx: AppContext): Promise<UserRow> {
 
   if (ctx.user) {
     const patch: Partial<UserRow> = {};
-    if (isEnvAdmin && (ctx.user.role !== "admin" || ctx.user.status !== "active")) {
+    if (isEnvAdmin && !ctx.user.admin_opt_out && (ctx.user.role !== "admin" || ctx.user.status !== "active")) {
       patch.role = "admin";
       patch.status = "active";
     }
@@ -67,7 +67,7 @@ export async function ensureUser(ctx: AppContext): Promise<UserRow> {
     }
     if (inPrivate && !ctx.user.dm_open) patch.dm_open = true;
     if (Object.keys(patch).length > 0) ctx.user = await ctx.db.updateUser(ctx.user.id, patch);
-    if (isEnvAdmin || ctx.user.role === "admin") {
+    if ((isEnvAdmin && !ctx.user.admin_opt_out) || ctx.user.role === "admin") {
       ctx.isAdmin = true;
       ctx.isTeacher = true;
     }

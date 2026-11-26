@@ -148,13 +148,60 @@ async function addTeacher(ctx: AppContext, raw: string): Promise<void> {
   }
 }
 
+async function manageAdmin(ctx: AppContext, text: string): Promise<boolean> {
+  if (isCommand(text, "/admin_qosh")) {
+    if (!ctx.isAdmin) {
+      await reply(ctx, T.onlyAdmin);
+      return true;
+    }
+    const raw = commandArgs(text, "/admin_qosh").replace(/^@/, "").trim();
+    const target = /^\d{5,}$/.test(raw)
+      ? await ctx.db.userByTg(Number(raw))
+      : await ctx.db.userByUsername(raw);
+    if (!target) {
+      await reply(ctx, "Foydalanuvchi topilmadi. Avval botga /start yuborgan bo'lishi kerak.");
+      return true;
+    }
+    await ctx.db.updateUser(target.id, { role: "admin", status: "active", admin_opt_out: false });
+    await reply(ctx, `✅ ${esc(target.full_name ?? "Foydalanuvchi")} admin qilindi.`);
+    try {
+      await ctx.tg.sendMessage(Number(target.tg_id), "Siz bot administratori bo'ldingiz. /panel orqali boshqarasiz.");
+    } catch (error) {
+      console.error("yangi adminga xabar yuborilmadi", error);
+    }
+    return true;
+  }
+  if (isCommand(text, "/adminlikdan_chiqish")) {
+    if (!ctx.isAdmin || !ctx.user || ctx.user.role !== "admin") {
+      await reply(ctx, "Siz admin emassiz.");
+      return true;
+    }
+    if (!(await ctx.db.hasOtherAdmin(ctx.user.id))) {
+      await reply(ctx, "Oxirgi admin chiqib keta olmaydi. Avval /admin_qosh orqali boshqa admin qo'shing.");
+      return true;
+    }
+    ctx.user = await ctx.db.updateUser(ctx.user.id, {
+      role: "teacher",
+      status: "active",
+      admin_opt_out: true,
+    });
+    ctx.isAdmin = false;
+    await reply(ctx, "Adminlikdan chiqdingiz. Hisobingiz ustoz sifatida qoldi.");
+    return true;
+  }
+  return false;
+}
+
 async function showLeaderboard(ctx: AppContext, period: string): Promise<void> {
   const since = period === "week"
     ? new Date(Date.now() - 7 * 86_400_000)
     : period === "month"
     ? new Date(Date.now() - 30 * 86_400_000)
     : null;
-  const rows = await ctx.db.leaderboard(since, ctx.user?.group_name ?? null);
+  const groupName = ctx.isTeacher
+    ? ctx.settings.group_title ?? ctx.user?.group_name ?? null
+    : ctx.user?.group_name ?? null;
+  const rows = await ctx.db.leaderboard(since, groupName);
   const normalized = period === "week" ? "week" : period === "month" ? "month" : "all";
   const text = renderLeaderboard(rows, normalized, ctx.sender.id);
   await reply(ctx, text, { markup: periodKeyboard(normalized) });
@@ -203,6 +250,7 @@ async function redeemTeacherInvite(ctx: AppContext, code: string): Promise<void>
 }
 
 async function handlePrivateCommand(ctx: AppContext, text: string, user: UserRow): Promise<boolean> {
+  if (await manageAdmin(ctx, text)) return true;
   if (text === BTN.tasks || isCommand(text, "/vazifalarim")) {
     await reply(ctx, await renderMyTasks(ctx, user), { markup: mainMenu(ctx.isTeacher) });
     return true;

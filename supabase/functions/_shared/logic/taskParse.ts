@@ -22,3 +22,27 @@ export function parseDue(raw: string, now = new Date()): Date | null {
   }
   return null;
 }
+
+/** Vazifa matnidan muddatni topadi: "Muddat: 3 kun", "2 kun ichida" yoki ISO sana. */
+export function extractDue(text: string, now = new Date()): { text: string; due: Date | null } {
+  const lines = text.split("\n");
+  const patterns = [
+    /^\s*(?:muddat|deadline|due)\s*[:\-]?\s*(\d{1,2})(?:\s*(?:kun|days?))?\s*$/i,
+    /^\s*(?:muddat|deadline|due)\s*[:\-]?\s*(\d{4}-\d{2}-\d{2})\s*$/i,
+    /^\s*(\d{1,2})\s*(?:kun|days?)\s*(?:ichida|within)?\s*$/i,
+  ];
+  for (let i = 0; i < lines.length; i++) {
+    const match = patterns.map((pattern) => lines[i].match(pattern)).find(Boolean);
+    if (!match) continue;
+    const due = parseDue(match[1], now);
+    if (!due) continue;
+    lines.splice(i, 1);
+    return { text: lines.join("\n").trim(), due };
+  }
+  const date = text.match(/\b(\d{4}-\d{2}-\d{2})\b/);
+  if (date) {
+    const due = parseDue(date[1], now);
+    if (due) return { text: text.replace(date[0], "").trim(), due };
+  }
+  return { text: text.trim(), due: null };
+}

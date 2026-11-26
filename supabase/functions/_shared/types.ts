@@ -95,6 +95,7 @@ export interface UserRow {
   id: number;
   tg_id: number;
   role: Role;
+  admin_opt_out?: boolean;
   status: UserStatus;
   full_name: string | null;
   username: string | null;
@@ -129,6 +130,7 @@ export interface SettingsRow {
   self_study_points: number;
   bot_task_points: number;
   daily_penalty: number;
+  default_due_hours: number;
   bot_tasks_per_day: number;
   ai_tutor_per_day: number;
   ai_enabled: boolean;

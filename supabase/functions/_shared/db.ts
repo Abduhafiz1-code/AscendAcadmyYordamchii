@@ -215,10 +215,11 @@ export class Db {
     ) as UserRow[];
   }
 
-  async activeStudents(): Promise<UserRow[]> {
+  async activeStudents(groupName: string | null = null): Promise<UserRow[]> {
+    let query = this.client.from("users").select("*").eq("role", "student").eq("status", "active");
+    if (groupName) query = query.eq("group_name", groupName);
     return unwrapMany(
-      await this.client.from("users").select("*").eq("role", "student").eq("status", "active")
-        .order("full_name", { ascending: true }),
+      await query.order("full_name", { ascending: true }),
       "active students",
     ) as UserRow[];
   }
@@ -367,6 +368,13 @@ export class Db {
     return (count ?? 0) > 0;
   }
 
+  async hasOtherAdmin(userId: number): Promise<boolean> {
+    const { count, error } = await this.client.from("users")
+      .select("id", { count: "exact", head: true }).eq("role", "admin").neq("id", userId);
+    if (error) throw new Error(`admin check: ${error.message}`);
+    return (count ?? 0) > 0;
+  }
+
   async findStudent(query: string): Promise<UserRow | null> {
     const needle = query.trim();
     if (!needle) return null;
@@ -449,6 +457,22 @@ export class Db {
         return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
       });
     return open[0] ?? null;
+  }
+
+  /** Shu guruhdagi o'quvchiga ochiq barcha vazifalar (bo'limlar aralashib ketmasligi uchun chat bilan cheklanadi). */
+  async answerableTasksInChat(userId: number, chatId: number): Promise<TaskRow[]> {
+    const rows = unwrapMany(
+      await this.client.from("tasks").select("*").eq("status", "active").eq("chat_id", chatId)
+        .in("kind", ["personal", "class", "self_study", "bot"])
+        .or(`assigned_user_id.is.null,assigned_user_id.eq.${userId}`)
+        .order("created_at", { ascending: false }).limit(50),
+      "answerable tasks in chat",
+    ) as TaskRow[];
+    const candidates = rows.filter((task) =>
+      task.kind !== "personal" && task.kind !== "bot" || task.assigned_user_id === userId
+    );
+    const scored = await this.scoredTaskIds(userId, candidates.map((task) => task.id));
+    return candidates.filter((task) => !scored.has(task.id));
   }
 
   /**
@@ -742,6 +766,7 @@ function normalizeSettings(row: SettingsRow): SettingsRow {
     self_study_points: Number(row.self_study_points ?? 2),
     bot_task_points: Number(row.bot_task_points ?? 3),
     daily_penalty: Number(row.daily_penalty ?? 5),
+    default_due_hours: Number(row.default_due_hours ?? 48),
     bot_tasks_per_day: Number(row.bot_tasks_per_day ?? 3),
     ai_tutor_per_day: Number(row.ai_tutor_per_day ?? 20),
   };
@@ -761,6 +786,7 @@ export function defaultSettings(): SettingsRow {
     self_study_points: 2,
     bot_task_points: 3,
     daily_penalty: 5,
+    default_due_hours: 48,
     bot_tasks_per_day: 3,
     ai_tutor_per_day: 20,
     ai_enabled: true,

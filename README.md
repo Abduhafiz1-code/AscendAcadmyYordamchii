@@ -69,8 +69,9 @@ Keyin:
 ## Buyruqlar
 
 **O'quvchi:** `/start` `/natijam` `/reyting` `/hafta` `/vazifa` `/fikr` `/qoidalar` `/savol` `/yordam`
-**Ustoz (guruhda):** `/bolim` `/yonalish` `/bahola 8` `/muddat 3` `/yopish` `/ochirish` `/reyting`
+**Ustoz (guruhda):** `/bolim` `/yonalish` `/vazifa matn` `/oquvchilar` `/bahola 8` `/muddat 3` `/yopish` `/ochirish` `/reyting`
 **Ustoz (shaxsiy):** `/panel` `/bolimlar` `/ustoz_taklif` `/elon matn`
+**Admin (shaxsiy):** `/admin_qosh <telegram_id yoki @username>` `/adminlikdan_chiqish`
 
 ## Baholash va ball
 

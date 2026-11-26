@@ -31,6 +31,8 @@ echo "→ buyruqlar menyusi (guruh ma'muriyati)"
 call setMyCommands '{"scope":{"type":"all_chat_administrators"},"commands":[
  {"command":"bolim","description":"Bo'lim turini belgilash"},
  {"command":"yonalish","description":"Bo'lim yo'nalishi (speaking, writing...)"},
+ {"command":"vazifa","description":"Guruhga vazifa yaratish (matn bilan)"},
+ {"command":"oquvchilar","description":"Shu guruh o'quvchilari va reytingi (rasm)"},
  {"command":"bahola","description":"Topshiriqqa baho (reply)"},
  {"command":"muddat","description":"Vazifa muddati (reply)"},
  {"command":"yopish","description":"Vazifani yopish (reply)"},

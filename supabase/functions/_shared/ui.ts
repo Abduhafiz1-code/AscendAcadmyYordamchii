@@ -115,6 +115,7 @@ export function settingsKeyboard(): TgReplyMarkup {
     [{ text: "📖 Self study balli", callback_data: "s:self" }],
     [{ text: "🤖 Bot vazifa balli", callback_data: "s:bot" }],
     [{ text: "⚠️ Kunlik jarima", callback_data: "s:penalty" }],
+    [{ text: "⏰ Vazifa muddati (soat)", callback_data: "s:due" }],
     [{ text: "🎯 Kunlik bot vazifalari", callback_data: "s:limit" }],
     [{ text: "⬅️ Panel", callback_data: "p:root" }],
   ]);

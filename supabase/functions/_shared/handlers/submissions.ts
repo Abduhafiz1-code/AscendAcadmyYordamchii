@@ -169,6 +169,39 @@ async function awardBest(
   return input.points;
 }
 
+/** Past baho yoki tugallanmagan ish uchun bitta shaxsiy qo'shimcha vazifa ochadi. */
+async function issueRemedialTask(
+  ctx: AppContext,
+  task: TaskRow,
+  student: UserRow,
+): Promise<void> {
+  if (task.prompt.toLowerCase().includes("[qo'shimcha:")) return;
+  const marker = `[qo'shimcha:${task.id}]`;
+  const open = await ctx.db.activeTasksForStudent(student);
+  if (open.some((item) => item.prompt.toLowerCase().includes(marker))) return;
+  const prompt = `${marker} Ustoz bergan vazifa to'liq bajarilmadi yoki natija 40% dan past.\n\n` +
+    `Qo'shimcha vazifa: <b>${esc(truncate(task.title ?? task.prompt, 300))}</b>\n` +
+    `Vazifani qayta, to'liq bajaring va shu xabarga javob qilib yuboring.`;
+  const remedial = await ctx.db.createTask({
+    kind: "bot",
+    prompt: prompt.replace(/<[^>]+>/g, ""),
+    title: `Qo'shimcha vazifa #${task.id}`,
+    chat_id: Number(student.tg_id),
+    assigned_user_id: student.id,
+    points_mode: "fixed",
+    fixed_points: ctx.settings.bot_task_points,
+    due_at: new Date(Date.now() + 24 * 3_600_000).toISOString(),
+    created_by: task.created_by,
+  });
+  try {
+    const messageId = await ctx.tg.sendMessage(Number(student.tg_id), prompt);
+    await ctx.db.updateTask(remedial.id, { message_id: messageId });
+  } catch (error) {
+    console.error("qo'shimcha vazifa yuborilmadi", student.id, error);
+    await ctx.db.updateTask(remedial.id, { status: "closed" });
+  }
+}
+
 /** Qo'lda tekshirish uchun ustozlarga javobni nusxalab yuboradi. */
 export async function forwardToStaff(
   ctx: AppContext,
@@ -346,6 +379,10 @@ export async function handleSubmission(
     fixedPoints: task.fixed_points,
   });
 
+  if (result.score < 4 || !result.done) {
+    await issueRemedialTask(ctx, task, student);
+  }
+
   if (decision.type === "manual") {
     await markManual(ctx, submission, task, student, "AI ishonchi past — ustoz tasdiqlasin", result);
     return;
@@ -473,6 +510,11 @@ export async function applyTeacherGrade(
     }) + answerKeyBlock(task),
     ctx.settings.ai_enabled && task.kind !== "bot" ? bonusTaskKeyboard() : undefined,
   );
+
+  if (normalized < 4) {
+    const student = await ctx.db.userById(submission.user_id);
+    if (student) await issueRemedialTask(ctx, task, student);
+  }
 
   // Guruhdagi topshiriq xabariga natija reaksiyasi.
   if (submission.chat_id && submission.message_id) {
