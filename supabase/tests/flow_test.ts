@@ -259,6 +259,11 @@ class FakeTg {
     if (messageId) this.reactions.push({ chatId, messageId, emoji });
     return Promise.resolve();
   }
+  edits: { chatId: number; messageId: number; text: string }[] = [];
+  editMessage(chatId: number, messageId: number, text: string) {
+    this.edits.push({ chatId, messageId, text });
+    return Promise.resolve();
+  }
   photos: { chatId: number; caption?: string }[] = [];
   sendPhoto(chatId: number, _photo: unknown, options: { caption?: string } = {}) {
     this.photos.push({ chatId, caption: options.caption });
@@ -305,6 +310,17 @@ function stubAi(score: number, confidence = 0.9) {
 function restoreAi() {
   globalThis.fetch = realFetch;
   Deno.env.delete("AI_API_KEY");
+}
+/** Oddiy matnli AI javobi (ustoz rejimi) uchun stub. */
+function stubAiText(text: string) {
+  Deno.env.set("AI_API_KEY", "test-key");
+  Deno.env.set("AI_PROVIDER", "gemini");
+  globalThis.fetch = (() =>
+    Promise.resolve(
+      new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ text }] }, finishReason: "STOP" }],
+      })),
+    )) as typeof fetch;
 }
 
 // ------------------------------------------------------------------ yordamchilar
@@ -524,26 +540,201 @@ Deno.test("botga /start bosmagan o'quvchi: guruhda bir marta 'botni ishga tushir
   }
 });
 
-Deno.test("savollar bo'limida bot jim; vazifa bo'limida suhbat xabari topshiriq emas", async () => {
-  const { db, tg, ctxFor } = setup();
-  await handleGroup(
-    ctxFor(TEACHER, { text: "Savollar", reply_to_message: topicStart("Savollar") }, 3),
-  );
-  await handleGroup(
-    ctxFor(
-      TEACHER,
-      { text: "Writing: 8 ta gap yozing", reply_to_message: topicStart("Writing") },
-      5,
-    ),
-  );
-  tg.sent.length = 0;
-  const student = { id: 600, first_name: "Zilola", username: "zil" };
-  await handleGroup(
-    ctxFor(student, { text: "Ustoz, present perfectni tushuntirib bera olasizmi?" }, 3),
-  );
-  await handleGroup(ctxFor(student, { text: "rahmat ustoz" }, 5));
-  assertEquals(tg.sent.length, 0);
-  assertEquals(db.subs.length, 0);
+Deno.test("savollar bo'limida oddiy savolga AI javob beradi, salomlashuvga jim", async () => {
+  stubAiText("Present perfect — o'tmishda boshlanib, hozirga aloqasi bor ish-harakat.");
+  try {
+    const { db, tg, ctxFor } = setup();
+    await handleGroup(
+      ctxFor(TEACHER, { text: "Savollar", reply_to_message: topicStart("Savollar") }, 3),
+    );
+    tg.sent.length = 0;
+    tg.edits.length = 0;
+    const student = { id: 600, first_name: "Zilola", username: "zil" };
+    await handleGroup(
+      ctxFor(student, { text: "Ustoz, present perfectni tushuntirib bera olasizmi?" }, 3),
+    );
+    // Guruhda "🤖 O'ylayapman..." xabari AI javobiga tahrirlanadi.
+    assertStringIncludes(tg.edits.at(-1)?.text ?? "", "Present perfect");
+    assertEquals(db.subs.length, 0);
+
+    const before = tg.sent.length + tg.edits.length;
+    await handleGroup(ctxFor(student, { text: "rahmat ustoz" }, 3));
+    assertEquals(tg.sent.length + tg.edits.length, before);
+  } finally {
+    restoreAi();
+  }
+});
+
+Deno.test("savollar bo'limidagi ovozli savol transkripsiya modeli bilan matnga ko'chiriladi", async () => {
+  Deno.env.set("AI_API_KEY", "test-key");
+  Deno.env.set("AI_PROVIDER", "gemini");
+  Deno.env.delete("AI_MODEL");
+  Deno.env.delete("AI_AUDIO_MODEL");
+  const requests: { url: string; body: Record<string, unknown> }[] = [];
+  globalThis.fetch = ((url: string, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+    requests.push({ url, body });
+    if (url.includes("/interactions")) {
+      return Promise.resolve(
+        new Response(JSON.stringify({
+          status: "completed",
+          output_text: "Present perfect nima?",
+        })),
+      );
+    }
+    return Promise.resolve(
+      new Response(JSON.stringify({
+        candidates: [{
+          content: { parts: [{ text: "Present perfect — hozirga aloqasi bor ish-harakat." }] },
+          finishReason: "STOP",
+        }],
+      })),
+    );
+  }) as typeof fetch;
+  try {
+    const { tg, ctxFor } = setup();
+    await handleGroup(
+      ctxFor(TEACHER, { text: "Savollar", reply_to_message: topicStart("Savollar") }, 3),
+    );
+    tg.sent.length = 0;
+    tg.edits.length = 0;
+    const student = { id: 620, first_name: "Dilnoza", username: "dilnoza" };
+    await handleGroup(
+      ctxFor(student, {
+        voice: { file_id: "v9", file_unique_id: "u9", mime_type: "audio/ogg" },
+      }, 3),
+    );
+
+    // 1) Ovoz maxsus transkripsiya modeliga Interactions API orqali yuboriladi.
+    const audio = requests.find((request) => request.url.includes("/interactions"));
+    assert(audio, "transkripsiya so'rovi yuborilishi kerak");
+    assertEquals(audio!.body.model, "gemini-3.5-transcribe");
+    const input = (audio!.body.input as { type: string; data: string; mime_type: string }[])[0];
+    assertEquals(input.type, "audio");
+    assertEquals(input.mime_type, "audio/ogg");
+    assert(input.data.length > 0);
+    assertEquals(
+      (audio!.body.generation_config as { transcription_config: { mode: string } })
+        .transcription_config.mode,
+      "smart",
+    );
+
+    // 2) Javobni odatiy (asosiy) model tayyorlaydi.
+    const answer = requests.at(-1)!;
+    assertStringIncludes(answer.url, "models/gemini-4-neon:generateContent");
+    assertStringIncludes(tg.edits.at(-1)?.text ?? "", "Present perfect");
+  } finally {
+    restoreAi();
+  }
+});
+
+Deno.test("transkripsiya modeli xato bersa, ovoz asosiy model bilan matnga ko'chiriladi", async () => {
+  Deno.env.set("AI_API_KEY", "test-key");
+  Deno.env.set("AI_PROVIDER", "gemini");
+  Deno.env.delete("AI_MODEL");
+  Deno.env.delete("AI_AUDIO_MODEL");
+  const requests: { url: string; body: Record<string, unknown> }[] = [];
+  let fallbackTranscripts = 0;
+  globalThis.fetch = ((url: string, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+    requests.push({ url, body });
+    if (url.includes("/interactions")) {
+      return Promise.resolve(new Response("model overloaded", { status: 503 }));
+    }
+    const system = ((body.systemInstruction as { parts?: { text?: string }[] })?.parts ?? [])
+      .map((part) => part.text ?? "").join("");
+    if (system.includes("Audio ichidagi nutqni")) {
+      fallbackTranscripts += 1;
+      return Promise.resolve(
+        new Response(JSON.stringify({
+          candidates: [{
+            content: { parts: [{ text: "Present perfect nima?" }] },
+            finishReason: "STOP",
+          }],
+        })),
+      );
+    }
+    return Promise.resolve(
+      new Response(JSON.stringify({
+        candidates: [{
+          content: { parts: [{ text: "Present perfect — hozirga aloqasi bor ish-harakat." }] },
+          finishReason: "STOP",
+        }],
+      })),
+    );
+  }) as typeof fetch;
+  try {
+    const { tg, ctxFor } = setup();
+    await handleGroup(
+      ctxFor(TEACHER, { text: "Savollar", reply_to_message: topicStart("Savollar") }, 3),
+    );
+    tg.sent.length = 0;
+    tg.edits.length = 0;
+    await handleGroup(
+      ctxFor({ id: 621, first_name: "Sardor", username: "sardor" }, {
+        voice: { file_id: "v10", file_unique_id: "u10", mime_type: "audio/ogg" },
+      }, 3),
+    );
+
+    // 503 bir marta qayta uriniladi, keyin asosiy model bilan transkripsiya qilinadi.
+    assertEquals(requests.filter((request) => request.url.includes("/interactions")).length, 2);
+    assertEquals(fallbackTranscripts, 1);
+    assertStringIncludes(tg.edits.at(-1)?.text ?? "", "Present perfect");
+  } finally {
+    restoreAi();
+  }
+});
+
+Deno.test("Gemini o'ylash tokenlari limitni yeb bo'sh javob qaytarsa — kattaroq limit bilan qayta so'raladi", async () => {
+  Deno.env.set("AI_API_KEY", "test-key");
+  Deno.env.set("AI_PROVIDER", "gemini");
+  let calls = 0;
+  const budgets: number[] = [];
+  const graded = JSON.stringify({ score: 7, feedback: "Yaxshi", confidence: 0.9, done: true });
+  globalThis.fetch = ((_url: string, init?: RequestInit) => {
+    calls += 1;
+    const body = JSON.parse(String(init?.body ?? "{}"));
+    budgets.push(Number(body.generationConfig?.maxOutputTokens));
+    if (calls === 1) {
+      return Promise.resolve(
+        new Response(JSON.stringify({
+          candidates: [{ content: { parts: [] }, finishReason: "MAX_TOKENS" }],
+        })),
+      );
+    }
+    return Promise.resolve(
+      new Response(JSON.stringify({
+        candidates: [{
+          content: {
+            parts: [
+              { text: "ichki fikrlash", thought: true },
+              { text: graded },
+            ],
+          },
+          finishReason: "STOP",
+        }],
+      })),
+    );
+  }) as typeof fetch;
+  try {
+    const { db, tg, ctxFor } = setup();
+    await handleGroup(
+      ctxFor(
+        TEACHER,
+        { text: "Writing: 8 ta gap yozing", reply_to_message: topicStart("Writing") },
+        5,
+      ),
+    );
+    await handleGroup(ctxFor({ id: 610, first_name: "Bek" }, {
+      text: "I go to school every day.",
+    }, 5));
+    assertEquals(calls, 2);
+    assert(budgets[1] > budgets[0], "ikkinchi urinishda limit kattaroq bo'lishi kerak");
+    assertEquals(db.points[0]?.points, 7);
+    assertEquals(tg.reactions.at(-1)?.emoji, "👍");
+  } finally {
+    restoreAi();
+  }
 });
 
 Deno.test("turi noma'lum bo'limga fayl tashlansa, ustozdan bir marta so'raladi", async () => {

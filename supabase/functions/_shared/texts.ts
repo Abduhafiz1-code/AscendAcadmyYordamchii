@@ -157,6 +157,7 @@ export const T = {
   aiLimit: "Bugun AI savollar limiti tugadi ({{limit}} ta). Ertaga davom eting.",
   aiOff: "AI hozircha o'chirilgan. Savolingizni ustozga yuboring.",
   aiFailed: "AI javob bera olmadi. Birozdan so'ng qayta urinib ko'ring.",
+  voiceUnclear: "🎤 Ovozli xabarni o'qib bo'lmadi. Iltimos, savolni matnda yozing.",
 
   scoreResult: "✅ <b>Baho: {{score}}/10</b>\n💬 {{feedback}}",
   fixedDone: "✅ <b>Bajarildi!</b> +{{points}} ball\n💬 {{feedback}}",

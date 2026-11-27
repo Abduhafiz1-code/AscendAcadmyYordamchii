@@ -83,6 +83,16 @@ Keyin:
 | Qayta topshirish | **eng yaxshi** ball saqlanadi (pasaymaydi) |
 | Kuniga hech narsa topshirilmasa | jarima (panelda 0 qilib o'chirish mumkin) |
 
+### AI modellari
+
+Gemini sozlamasida odatiy AI ishlari `gemini-4-neon` modelidan foydalanadi. Ovozli xabarlar (vazifa javoblari va «Savollar» bo'limidagi ovozli savollar) avval `gemini-3.5-transcribe` bilan matnga ko'chiriladi, so'ng asosiy model baholaydi yoki javob beradi. Transkripsiya Interactions API (`/v1beta/interactions`) orqali inline audio bilan yuboriladi. Modellarni Supabase secrets orqali almashtirish mumkin:
+
+```bash
+npx supabase secrets set AI_MODEL=gemini-4-neon AI_AUDIO_MODEL=gemini-3.5-transcribe
+```
+
+Transkripsiya modeli xato bersa, bot ovozni asl audio sifatida asosiy modelga yuborib matnga ko'chiradi; vazifa baholashda esa audio bevosita baholanadi.
+
 ## Fikr-mulohaza
 
 O'quvchi `/fikr` yoki «💬 Fikr bildirish» bilan yozadi → `feedback` jadvaliga tushadi, ustozlarga xabar boradi, panelda «💬 Fikrlar» da ko'rinadi.
@@ -90,7 +100,7 @@ O'quvchi `/fikr` yoki «💬 Fikr bildirish» bilan yozadi → `feedback` jadval
 ## Testlar
 
 ```bash
-npm test      # 28 ta test: bo'lim tanish, reaksiya oqimi, avto-ro'yxat, DM, onboarding, reyting rasmi
+npm test      # 31 ta test: bo'lim tanish, reaksiya oqimi, avto-ro'yxat, DM, onboarding, AI transkripsiya, reyting rasmi
 npm run check # tip tekshiruvi
 ```
 

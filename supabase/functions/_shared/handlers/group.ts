@@ -13,7 +13,9 @@ import {
   type ExtractedContent,
   isCommand,
   REACTION,
+  toBase64,
 } from "../telegram.ts";
+import { transcribeAudio } from "../ai.ts";
 import { ensureUser } from "./onboarding.ts";
 import type { SettingsRow, TaskKind, TaskRow, TopicRow, UserRow } from "../types.ts";
 import { applyTeacherGrade, handleSubmission } from "./submissions.ts";
@@ -474,24 +476,70 @@ async function gradeByReply(ctx: AppContext, raw: string): Promise<void> {
   }
 }
 
-/** Savollar bo'limida bot faqat so'ralganda (/savol yoki @bot) AI bilan javob beradi. */
+/** Ovozli savolni matnga ko'chirib, AI ustozga yuboradi. */
+async function answerVoiceQuestion(
+  ctx: AppContext,
+  content: ExtractedContent,
+): Promise<void> {
+  if (!content.fileId) return;
+  let question = "";
+  try {
+    const bytes = await ctx.tg.downloadFile(content.fileId);
+    const transcript = await transcribeAudio({
+      mimeType: content.mimeType ?? "audio/ogg",
+      base64: toBase64(bytes),
+      settingsModel: ctx.settings.ai_model,
+    });
+    question = transcript.text.trim();
+  } catch (error) {
+    console.error("ovozli savol o'qilmadi", error);
+  }
+  if (!question) {
+    await reply(ctx, T.voiceUnclear);
+    return;
+  }
+  await answerQuestion(ctx, question);
+}
+
+/**
+ * Savollar bo'limida o'quvchi savolini AI ustoz javoblaydi (/savol, @bot yoki oddiy savol).
+ * Salomlashuv va minnatdorchilikka javob berilmaydi.
+ */
 async function maybeAnswerInQuestions(ctx: AppContext): Promise<void> {
   if (ctx.isTeacher) return; // ustozlar o'zaro / o'quvchiga yozadi — bot aralashmaydi
-  const text = (ctx.message?.text ?? "").trim();
-  if (!text) return;
+  const message = ctx.message;
+  if (!message) return;
+  const content = extractContent(message);
+  const text = (content?.text ?? "").trim();
+  if (!text) {
+    // Ovozli savol: avval transkripsiya modeli bilan matnga ko'chiramiz, keyin javob beramiz.
+    if (content?.contentType === "voice" || content?.contentType === "audio") {
+      await answerVoiceQuestion(ctx, content);
+    }
+    return; // rasm va boshqa fayllar: savol matni yo'q — jim turamiz
+  }
   if (isCommand(text, "/savol")) {
     await answerQuestion(ctx, commandArgs(text, "/savol"));
     return;
   }
+  if (text.startsWith("/")) return; // boshqa buyruqlar o'z joyida ishlanadi
+
+  let question = text;
   try {
     const me = await ctx.tg.getMe();
-    if (me.username && text.toLowerCase().includes(`@${me.username.toLowerCase()}`)) {
-      const question = text.replace(new RegExp(`@${me.username}`, "ig"), "").trim();
-      await answerQuestion(ctx, question);
+    if (me.username) {
+      const mention = new RegExp(`@${me.username}`, "ig");
+      const asked = mention.test(text);
+      question = text.replace(new RegExp(`@${me.username}`, "ig"), "").trim();
+      if (!asked && isChatterNotSubmission(content, false)) return;
+    } else if (isChatterNotSubmission(content, false)) {
+      return;
     }
   } catch (error) {
     console.error("getMe xatosi", error);
   }
+  if (!question) return;
+  await answerQuestion(ctx, question);
 }
 
 /**

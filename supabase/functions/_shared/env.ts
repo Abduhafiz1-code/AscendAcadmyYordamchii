@@ -45,13 +45,20 @@ export function aiConfig(settingsModel?: string | null): AiConfig | null {
     : "gemini";
   const model = settingsModel?.trim() ||
     env("AI_MODEL") ||
-    (provider === "gemini" ? "gemini-flash-latest" : "gpt-4o-mini");
+    (provider === "gemini" ? "gemini-4-neon" : "gpt-4o-mini");
   return {
     provider,
     apiKey,
     model,
     baseUrl: (env("AI_BASE_URL") ?? "https://api.openai.com/v1").replace(/\/+$/, ""),
   };
+}
+
+/** Ovozdan matn olish uchun alohida model; AI_AUDIO_MODEL bilan almashtirish mumkin. */
+export function aiAudioConfig(settingsModel?: string | null): AiConfig | null {
+  const config = aiConfig(settingsModel);
+  if (!config || config.provider !== "gemini") return config;
+  return { ...config, model: env("AI_AUDIO_MODEL") ?? "gemini-3.5-transcribe" };
 }
 
 export function webhookSecret(): string | undefined {

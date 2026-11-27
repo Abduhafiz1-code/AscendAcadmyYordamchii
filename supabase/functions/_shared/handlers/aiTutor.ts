@@ -3,6 +3,7 @@ import { aiConfig } from "../env.ts";
 import { bumpAiCounter, freshCounters, reply, type AppContext } from "../context.ts";
 import { esc } from "../logic/format.ts";
 import { fill, T } from "../texts.ts";
+import type { UserRow } from "../types.ts";
 
 /** AI ustoz: savol-javob, kunlik limit bilan. */
 export async function answerQuestion(ctx: AppContext, rawQuestion: string): Promise<void> {
@@ -17,13 +18,13 @@ export async function answerQuestion(ctx: AppContext, rawQuestion: string): Prom
   }
 
   const isStudent = ctx.user?.role === "student" && ctx.user.status === "active";
+  let fresh: UserRow | null = null;
   if (isStudent && ctx.user) {
-    const fresh = await freshCounters(ctx, ctx.user);
+    fresh = await freshCounters(ctx, ctx.user);
     if (fresh.ai_count >= ctx.settings.ai_tutor_per_day) {
       await reply(ctx, fill(T.aiLimit, { limit: ctx.settings.ai_tutor_per_day }));
       return;
     }
-    await bumpAiCounter(ctx, fresh);
   }
 
   let placeholder: number;
@@ -40,9 +41,15 @@ export async function answerQuestion(ctx: AppContext, rawQuestion: string): Prom
       settingsModel: ctx.settings.ai_model,
     });
     await ctx.tg.editMessage(ctx.chatId, placeholder, esc(answer));
+    // Kunlik limit faqat muvaffaqiyatli javobdan keyin sanaladi — xato javob kvotani yeb qo'ymaydi.
+    if (fresh) await bumpAiCounter(ctx, fresh);
   } catch (error) {
     const reason = error instanceof AiError ? error.reason : "AI xatosi";
     console.error("AI ustoz xatosi", reason);
-    await ctx.tg.editMessage(ctx.chatId, placeholder, T.aiFailed);
+    await ctx.tg.editMessage(
+      ctx.chatId,
+      placeholder,
+      ctx.isAdmin ? `${T.aiFailed}\n\n<code>${esc(reason.slice(0, 300))}</code>` : T.aiFailed,
+    );
   }
 }

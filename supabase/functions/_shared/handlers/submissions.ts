@@ -1,4 +1,4 @@
-import { type GradeResult, gradeSubmission } from "../ai.ts";
+import { type GradeResult, gradeSubmission, transcribeAudio } from "../ai.ts";
 import { aiConfig } from "../env.ts";
 import { type AppContext, notifyStaff } from "../context.ts";
 import { decideGrade } from "../logic/decide.ts";
@@ -79,6 +79,21 @@ async function prepareAnswer(ctx: AppContext, content: ExtractedContent): Promis
     if (error instanceof MediaTooLargeError) return { ok: false, reason: "too_large" };
     console.error("media yuklab bo'lmadi", error);
     return { ok: false, reason: "download_failed" };
+  }
+
+  // Ovozli xabarni avval alohida transkripsiya modeli bilan yozuvga aylantiramiz.
+  // Asl audio ham baholovchiga qoladi: speaking topshirig'ida talaffuzni tekshirish uchun kerak.
+  if ((content.contentType === "voice" || content.contentType === "audio") && media.length > 0) {
+    try {
+      const transcript = await transcribeAudio({
+        ...media[0],
+        settingsModel: ctx.settings.ai_model,
+      });
+      text = `${text}${text ? "\n\n" : ""}Ovozdan olingan matn:\n${transcript.text}`;
+    } catch (error) {
+      // Transkripsiya xatosi topshiriqni yo'qotmasin; eski multimodal baholash davom etadi.
+      console.error("ovoz transkripsiyasi bajarilmadi; audio bevosita baholanadi", error);
+    }
   }
 
   return { ok: true, text, media };

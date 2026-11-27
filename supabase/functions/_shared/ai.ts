@@ -1,4 +1,4 @@
-import { aiConfig, type AiConfig } from "./env.ts";
+import { aiAudioConfig, aiConfig, type AiConfig } from "./env.ts";
 import { clampScore } from "./logic/points.ts";
 import type { TaskRow } from "./types.ts";
 
@@ -73,28 +73,51 @@ async function geminiGenerate(
     },
   };
 
-  const data = await requestJson(
-    url,
-    {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-goog-api-key": config.apiKey },
-      body: JSON.stringify(payload),
-    },
-    "Gemini",
-  ) as {
-    candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[];
+  type GeminiResponse = {
+    candidates?: {
+      content?: { parts?: { text?: string; thought?: boolean }[] };
+      finishReason?: string;
+    }[];
     promptFeedback?: { blockReason?: string };
   };
 
-  if (data.promptFeedback?.blockReason) {
-    throw new AiError(`AI so'rovi bloklandi: ${data.promptFeedback.blockReason}`);
+  // Yangi Gemini modellari "o'ylash" (thinking) tokenlarini ham maxOutputTokens ichida
+  // sarflaydi: kichik limitda javob matni butunlay bo'sh qaytadi (finishReason MAX_TOKENS).
+  // Shuning uchun zaxira limit kengroq va bo'sh javobda bir marta kattaroq limit bilan
+  // qayta urinamiz.
+  let budget = Math.max(maxTokens, 2048);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    payload.generationConfig.maxOutputTokens = budget;
+    const data = await requestJson(
+      url,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-goog-api-key": config.apiKey },
+        body: JSON.stringify(payload),
+      },
+      "Gemini",
+    ) as GeminiResponse;
+
+    if (data.promptFeedback?.blockReason) {
+      throw new AiError(`AI so'rovi bloklandi: ${data.promptFeedback.blockReason}`);
+    }
+    const candidate = data.candidates?.[0];
+    // thought: true — modelning ichki fikrlashi, uni javob matniga qo'shmaymiz.
+    const text = (candidate?.content?.parts ?? [])
+      .filter((part) => !part.thought)
+      .map((part) => part.text ?? "")
+      .join("")
+      .trim();
+    if (text) return text;
+
+    const finish = candidate?.finishReason;
+    if (attempt === 0 && (finish === "MAX_TOKENS" || finish === undefined)) {
+      budget = Math.min(Math.max(budget * 2, 4096), 16_384);
+      continue;
+    }
+    throw new AiError(`AI bo'sh javob qaytardi${finish ? ` (${finish})` : ""}`);
   }
-  const text = (data.candidates?.[0]?.content?.parts ?? [])
-    .map((part) => part.text ?? "")
-    .join("")
-    .trim();
-  if (!text) throw new AiError("AI bo'sh javob qaytardi");
-  return text;
+  throw new AiError("AI bo'sh javob qaytardi");
 }
 
 async function openAiGenerate(
@@ -164,6 +187,131 @@ async function generate(
     ? await geminiGenerate(config, system, parts, json, maxTokens)
     : await openAiGenerate(config, system, parts, json, maxTokens);
   return { text, model: config.model };
+}
+
+// ---------------------------------------------------------------------------
+// Ovoz transkripsiyasi
+// ---------------------------------------------------------------------------
+
+/**
+ * Transkripsiya modeli (gemini-3.5-transcribe) generateContent emas, Interactions API
+ * orqali ishlaydi: POST /v1beta/interactions, input ichida inline audio (20 MB gacha).
+ */
+const AUDIO_API_ROOT = "https://generativelanguage.googleapis.com/v1beta";
+
+/** Interactions API qabul qiladigan audio MIME turlari. */
+const AUDIO_MIME: Record<string, string> = {
+  "audio/ogg": "audio/ogg",
+  "audio/oga": "audio/ogg",
+  "audio/opus": "audio/opus",
+  "audio/mpeg": "audio/mpeg",
+  "audio/mp3": "audio/mp3",
+  "audio/mp4": "audio/m4a",
+  "audio/m4a": "audio/m4a",
+  "audio/x-m4a": "audio/m4a",
+  "audio/wav": "audio/wav",
+  "audio/x-wav": "audio/wav",
+  "audio/webm": "audio/webm",
+  "audio/aac": "audio/aac",
+  "audio/flac": "audio/flac",
+  "audio/x-flac": "audio/flac",
+  "audio/aiff": "audio/aiff",
+};
+
+function audioMime(mimeType: string): string {
+  const base = mimeType.toLowerCase().split(";")[0].trim();
+  const mapped = AUDIO_MIME[base];
+  if (!mapped) throw new AiError(`Qo'llab-quvvatlanmaydigan audio format: ${base}`);
+  return mapped;
+}
+
+const TRANSCRIBE_SYSTEM =
+  "Audio ichidagi nutqni aynan eshitilgan tilida, so'zma-so'z matnga ko'chir. " +
+  "Tarjima, xulosa yoki javob qo'shma. Tushunarsiz qismlarni taxmin qilma.";
+
+/** Matnni Interactions API dan ajratib oladi (output_text yoki steps[].content[].text). */
+function interactionText(data: {
+  output_text?: string;
+  steps?: { content?: { text?: string }[] }[];
+}): string {
+  return (data.output_text ??
+    (data.steps ?? [])
+      .flatMap((step) => step.content ?? [])
+      .map((part) => part.text ?? "")
+      .join(""))
+    .trim();
+}
+
+/** Ovozni maxsus transkripsiya modeli bilan matnga aylantiradi (Interactions API). */
+async function geminiTranscribe(
+  config: AiConfig,
+  mimeType: string,
+  base64: string,
+): Promise<string> {
+  const data = await requestJson(
+    `${AUDIO_API_ROOT}/interactions`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-goog-api-key": config.apiKey },
+      body: JSON.stringify({
+        model: config.model,
+        input: [{ type: "audio", data: base64, mime_type: audioMime(mimeType) }],
+        // smart: filler so'zlarni tozalab, tinish belgilari bilan o'qiladigan matn beradi.
+        generation_config: { transcription_config: { mode: "smart" } },
+      }),
+    },
+    "Transkripsiya",
+  ) as {
+    status?: string;
+    output_text?: string;
+    steps?: { content?: { text?: string }[] }[];
+  };
+
+  const text = interactionText(data);
+  if (!text) {
+    throw new AiError(
+      `Transkripsiya bo'sh javob qaytardi${data.status ? ` (${data.status})` : ""}`,
+    );
+  }
+  return text;
+}
+
+/**
+ * Audio/voice faylini matnga aylantiradi.
+ * Avval AI_AUDIO_MODEL (gemini-3.5-transcribe) ishlatiladi; u ishlamasa (model band,
+ * limit, format) asosiy AI modeli bilan matnga ko'chiramiz — ovozli javob yo'qolmasin.
+ */
+export async function transcribeAudio(input: {
+  mimeType: string;
+  base64: string;
+  settingsModel?: string | null;
+}): Promise<{ text: string; model: string }> {
+  const config = aiAudioConfig(input.settingsModel);
+  if (!config) throw new AiError("AI_API_KEY sozlanmagan");
+  if (config.provider !== "gemini") {
+    throw new AiError("Ovoz transkripsiyasi uchun Gemini provayderi kerak");
+  }
+
+  try {
+    const text = await geminiTranscribe(config, input.mimeType, input.base64);
+    return { text, model: config.model };
+  } catch (error) {
+    console.error(
+      "transkripsiya modeli xatosi; asosiy model bilan urinamiz",
+      error instanceof AiError ? error.reason : error,
+    );
+  }
+
+  const main = aiConfig(input.settingsModel);
+  if (!main) throw new AiError("AI_API_KEY sozlanmagan");
+  const text = await geminiGenerate(
+    main,
+    TRANSCRIBE_SYSTEM,
+    [{ inline: { mimeType: input.mimeType, base64: input.base64 } }],
+    false,
+    4096,
+  );
+  return { text, model: main.model };
 }
 
 export function parseJsonLoose(raw: string): Record<string, unknown> | null {
