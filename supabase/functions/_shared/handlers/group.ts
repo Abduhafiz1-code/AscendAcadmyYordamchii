@@ -142,8 +142,8 @@ async function showTopicType(ctx: AppContext): Promise<void> {
     await reply(ctx, T.onlyStaff);
     return;
   }
-  if (!ctx.threadId) {
-    await reply(ctx, T.onlyGroup);
+  if (!ctx.isGroup) {
+    await reply(ctx, T.needGroup);
     return;
   }
   const topic = await trackTopic(ctx);
@@ -618,7 +618,8 @@ async function routeGroupMessage(
   }
 
   // --- O'quvchi yoki admin: vazifa javobini topshiradi ---
-  if (isChatterNotSubmission(content, Boolean(repliedTask))) return;
+  const isTaskSection = route.type === "tasks" || route.type === "self_study" || route.type === "student";
+  if (!isTaskSection && isChatterNotSubmission(content, Boolean(repliedTask))) return;
   const sender = await ensureUser(ctx);
   const canSubmit = sender.status === "active" &&
     (sender.role === "student" || sender.role === "admin");
@@ -700,12 +701,12 @@ async function collectPhotoAlbum(ctx: AppContext): Promise<boolean> {
 
 /** Guruh reytingi: faqat shu guruh a'zolari (boshqa guruh o'quvchilari aralashmaydi). */
 async function groupLeaderboard(ctx: AppContext, since: Date | null) {
-  const rows = await ctx.db.leaderboard(
-    since,
-    ctx.message?.chat.title ?? ctx.settings.group_title,
-  );
+  const rows = await ctx.db.leaderboard(since, null);
   const members = await ctx.db.membersOfChat(ctx.chatId);
-  if (members.length === 0) return rows;
+  if (members.length === 0) {
+    const title = ctx.message?.chat.title ?? ctx.settings.group_title;
+    return title ? rows.filter((row) => row.group_name === title) : rows;
+  }
   const ids = new Set(members.map((member) => member.id));
   return rows.filter((row) => ids.has(Number(row.user_id)));
 }
@@ -733,7 +734,7 @@ export async function handleGroup(ctx: AppContext): Promise<void> {
   if (ctx.user) {
     await ctx.db.touchMember(ctx.chatId, ctx.user.id);
     const chatTitle = ctx.message?.chat.title ?? null;
-    if (chatTitle && ctx.user.group_name !== chatTitle) {
+    if (chatTitle && !ctx.user.group_name) {
       ctx.user = await ctx.db.updateUser(ctx.user.id, { group_name: chatTitle });
     }
   }

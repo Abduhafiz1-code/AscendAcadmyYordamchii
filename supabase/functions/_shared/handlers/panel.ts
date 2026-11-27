@@ -138,31 +138,59 @@ export async function panelSection(
   }
 
   if (section === "students") {
-    const rosterGroup = ctx.settings.group_title ?? ctx.user?.group_name ?? null;
-    const rosterChatId = ctx.isGroup ? ctx.chatId : ctx.settings.group_chat_id;
-    const members = rosterChatId ? await ctx.db.membersOfChat(Number(rosterChatId)) : [];
-    const fromChat = members.filter((member) =>
-      member.role === "student" && member.status === "active"
-    );
-    const students = fromChat.length > 0 ? fromChat : await ctx.db.activeStudents(rosterGroup);
-    if (students.length === 0) {
-      return { text: T.panelStudentsEmpty, markup: panelKeyboard(ctx.isAdmin) };
+    const currentChatId = ctx.isGroup ? ctx.chatId : ctx.settings.group_chat_id;
+    const chats = ctx.isAdmin && !ctx.isGroup
+      ? await ctx.db.linkedChats()
+      : currentChatId
+      ? [{ chat_id: Number(currentChatId), title: ctx.message?.chat.title ?? ctx.settings.group_title }]
+      : [];
+    const groupRows: { title: string; students: UserRow[] }[] = [];
+    for (const chat of chats) {
+      const members = await ctx.db.membersOfChat(Number(chat.chat_id));
+      let students = members.filter((member) =>
+        member.role === "student" && member.status === "active"
+      );
+      if (students.length === 0) {
+        students = await ctx.db.activeStudents(chat.title ?? ctx.user?.group_name ?? null);
+      }
+      if (students.length > 0) {
+        groupRows.push({
+          title: chat.title ?? `Guruh ${chat.chat_id}`,
+          students: students.sort((a, b) =>
+            (a.full_name ?? "").localeCompare(b.full_name ?? "", "uz")
+          ),
+        });
+      }
     }
-    const rows = await ctx.db.leaderboard(null, rosterGroup);
-    const byId = new Map(rows.map((row) => [Number(row.user_id), row]));
-    const lines = [fill(T.panelStudents, {
-      count: students.length,
-      list: students.slice(0, 40).map((student) => {
-        const stat = byId.get(student.id);
-        return `👤 ${esc(truncate(student.full_name ?? "—", 24))} · ${
-          esc(student.group_name ?? "—")
-        }` +
-          ` · <b>${fmtPoints(stat?.points ?? 0)}</b> ball`;
-      }).join("\n"),
-    })];
-    return { text: lines.join("\n"), markup: panelKeyboard(ctx.isAdmin) };
-  }
+    if (groupRows.length === 0) {
+      const students = await ctx.db.activeStudents(ctx.settings.group_title ?? ctx.user?.group_name ?? null);
+      if (students.length === 0) {
+        return { text: T.panelStudentsEmpty, markup: panelKeyboard(ctx.isAdmin) };
+      }
+      groupRows.push({ title: ctx.settings.group_title ?? "Guruh", students });
+    }
 
+    const total = groupRows.reduce((sum, group) => sum + group.students.length, 0);
+    const rows = await ctx.db.leaderboard(null, null);
+    const byId = new Map(rows.map((row) => [Number(row.user_id), row]));
+    const lines = [`🎓 <b>O'quvchilar</b> (${total})`, ""];
+    let remaining = 45;
+    for (const group of groupRows) {
+      lines.push(`<b>${esc(group.title)}</b> · ${group.students.length} nafar`);
+      const shown = group.students.slice(0, remaining);
+      for (const student of shown) {
+        const stat = byId.get(student.id);
+        lines.push(`👤 ${esc(truncate(student.full_name ?? "—", 30))} · <b>${fmtPoints(stat?.points ?? 0)}</b> ball`);
+      }
+      remaining -= shown.length;
+      if (shown.length < group.students.length) {
+        lines.push(`… yana ${group.students.length - shown.length} o'quvchi`);
+      }
+      lines.push("");
+      if (remaining <= 0) break;
+    }
+    return { text: lines.join("\n").trim(), markup: panelKeyboard(ctx.isAdmin) };
+  }
   if (section === "tasks") {
     const tasks = await ctx.db.activeTasks(10);
     if (tasks.length === 0) return { text: T.panelTasksEmpty, markup: panelKeyboard(ctx.isAdmin) };

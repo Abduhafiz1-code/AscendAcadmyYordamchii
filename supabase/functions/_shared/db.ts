@@ -182,6 +182,18 @@ export class Db {
     }
   }
 
+  async linkedChats(): Promise<{ chat_id: number; title: string | null }[]> {
+    try {
+      const { data, error } = await this.client.from("bot_chats")
+        .select("chat_id,title").order("title", { ascending: true });
+      if (error) throw new Error(error.message);
+      return (data ?? []) as { chat_id: number; title: string | null }[];
+    } catch (error) {
+      console.error("ulangan guruhlar o'qilmadi", error);
+      return [];
+    }
+  }
+
   /** Guruhda ko'rilgan foydalanuvchi (ro'yxatlar guruh bo'yicha ajratiladi). */
   async touchMember(chatId: number, userId: number): Promise<void> {
     try {

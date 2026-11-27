@@ -63,7 +63,9 @@ export async function buildContext(
     update,
     sender,
     chatId: chat.id,
-    threadId: message?.message_thread_id ?? callback?.message?.message_thread_id ?? null,
+    threadId: message?.message_thread_id ?? message?.reply_to_message?.message_thread_id ??
+      (message?.reply_to_message?.forum_topic_created ? message.reply_to_message.message_id : null) ??
+      callback?.message?.message_thread_id ?? null,
     message,
     callback,
     user,
